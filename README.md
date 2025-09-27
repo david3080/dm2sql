@@ -162,8 +162,7 @@ cd docs && python -m http.server 8080
 
 ## 📚 DMNotation記法について
 
-DMNotation記法は、視覚的で編集しやすいデータモデリング記法です。
-詳細な仕様は `4_1_DMNotation.md` を参照してください。
+DMNotation記法は、視覚的で編集しやすい独自のデータモデリング記法です。
 
 ### 基本例
 ```
@@ -171,15 +170,6 @@ DMNotation記法は、視覚的で編集しやすいデータモデリング記�
 ├─注文{order}: [注文ID{id:int}], (顧客ID{customer_id:int}), 注文日時{order_date:datetime!}
 └─お気に入り{favorite}: [お気に入りID{id:int}], (顧客ID{customer_id:int}), (商品ID{product_id:int})
 ```
-
-## 🤝 貢献
-
-プロジェクトへの貢献を歓迎します：
-
-1. フォークしてブランチを作成
-2. 機能追加・バグ修正
-3. テストの確認
-4. プルリクエストの作成
 
 ## 📄 ライセンス
 
