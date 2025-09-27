@@ -2,116 +2,91 @@ import 'package:drift/drift.dart';
 import 'package:drift/wasm.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 
-part 'database.g.dart';
-
-// テーブル定義: 顧客テーブル
-class Customers extends Table {
-  IntColumn get id => integer().autoIncrement()();
-  TextColumn get name => text().withLength(min: 1, max: 50)();
-  TextColumn get email => text().unique()();
-  TextColumn get address => text().nullable()();
-  TextColumn get phone => text().nullable()();
-  DateTimeColumn get createdAt => dateTime().withDefault(currentDateAndTime)();
-}
-
-// テーブル定義: 商品テーブル
-class Products extends Table {
-  IntColumn get id => integer().autoIncrement()();
-  TextColumn get name => text().withLength(min: 1, max: 100)();
-  TextColumn get description => text().nullable()();
-  IntColumn get price => integer()();
-  IntColumn get stock => integer().withDefault(const Constant(0))();
-  DateTimeColumn get createdAt => dateTime().withDefault(currentDateAndTime)();
-}
-
-// データベースクラス
-@DriftDatabase(tables: [Customers, Products])
-class MyDatabase extends _$MyDatabase {
-  MyDatabase() : super(_openConnection());
+/// 最小限のDriftデータベース
+/// 自動生成に依存せず、Web WASM接続管理のみを利用
+class MinimalDatabase extends GeneratedDatabase {
+  MinimalDatabase() : super(_openConnection());
 
   @override
   int get schemaVersion => 1;
 
-  // 顧客データの初期化
-  Future<void> insertInitialCustomers() async {
-    await batch((batch) {
-      batch.insertAll(customers, [
-        CustomersCompanion.insert(
-          name: '山田太郎',
-          email: 'yamada@example.com',
-          address: const Value('東京都渋谷区1-1-1'),
-          phone: const Value('090-1234-5678'),
-        ),
-        CustomersCompanion.insert(
-          name: '佐藤花子',
-          email: 'sato@example.com',
-          address: const Value('大阪府大阪市2-2-2'),
-          phone: const Value('090-9876-5432'),
-        ),
-        CustomersCompanion.insert(
-          name: '田中次郎',
-          email: 'tanaka@example.com',
-          address: const Value('名古屋市中区3-3-3'),
-          phone: const Value('090-5555-7777'),
-        ),
-      ]);
-    });
+  @override
+  Iterable<TableInfo<Table, dynamic>> get allTables => [];
+
+  // 生SQL実行メソッド
+  Future<List<Map<String, dynamic>>> rawQuery(String sql, [List<Variable>? arguments]) async {
+    final result = await customSelect(sql, variables: arguments ?? []).get();
+    return result.map((row) => row.data).toList();
   }
 
-  // 商品データの初期化
-  Future<void> insertInitialProducts() async {
-    await batch((batch) {
-      batch.insertAll(products, [
-        ProductsCompanion.insert(
-          name: 'Webカメラ',
-          description: const Value('高画質1080p対応Webカメラ'),
-          price: 5980,
-          stock: const Value(15),
-        ),
-        ProductsCompanion.insert(
-          name: 'ワイヤレスマウス',
-          description: const Value('静音設計のワイヤレスマウス'),
-          price: 2480,
-          stock: const Value(25),
-        ),
-        ProductsCompanion.insert(
-          name: 'キーボード',
-          description: const Value('メカニカルキーボード'),
-          price: 8900,
-          stock: const Value(8),
-        ),
-        ProductsCompanion.insert(
-          name: 'モニタースタンド',
-          description: const Value('高さ調整可能なモニタースタンド'),
-          price: 3200,
-          stock: const Value(12),
-        ),
-      ]);
-    });
+  // 生SQL実行（戻り値なし）
+  Future<void> rawExecute(String sql, [List<Variable>? arguments]) async {
+    await customStatement(sql, arguments ?? []);
   }
 
-  // すべての顧客を取得
-  Future<List<Customer>> getAllCustomers() {
-    return select(customers).get();
+  // 挿入実行
+  Future<int> rawInsert(String sql, [List<Variable>? arguments]) async {
+    return await customInsert(sql, variables: arguments ?? []);
   }
 
-  // すべての商品を取得
-  Future<List<Product>> getAllProducts() {
-    return select(products).get();
-  }
+  // デモ用の初期データ作成
+  Future<void> setupDemoData() async {
+    // 顧客テーブル作成
+    await rawExecute('''
+      CREATE TABLE IF NOT EXISTS customers (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        email TEXT UNIQUE,
+        address TEXT,
+        phone TEXT,
+        created_at INTEGER DEFAULT (strftime('%s', 'now'))
+      )
+    ''');
 
-  // 初期データのセットアップ
-  Future<void> setupInitialData() async {
-    final customerCount = await (selectOnly(customers)..addColumns([customers.id.count()])).getSingle();
-    final productCount = await (selectOnly(products)..addColumns([products.id.count()])).getSingle();
+    // 商品テーブル作成
+    await rawExecute('''
+      CREATE TABLE IF NOT EXISTS products (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        description TEXT,
+        price INTEGER NOT NULL,
+        stock INTEGER DEFAULT 0,
+        created_at INTEGER DEFAULT (strftime('%s', 'now'))
+      )
+    ''');
 
-    if (customerCount.read(customers.id.count()) == 0) {
-      await insertInitialCustomers();
+    // データ存在チェック
+    final customerCount = await rawQuery('SELECT COUNT(*) as count FROM customers');
+    final productCount = await rawQuery('SELECT COUNT(*) as count FROM products');
+
+    // 初期データ挿入
+    if (customerCount.first['count'] == 0) {
+      await rawExecute('''
+        INSERT INTO customers (name, email, address, phone) VALUES
+        ('山田太郎', 'yamada@example.com', '東京都渋谷区1-1-1', '090-1234-5678'),
+        ('佐藤花子', 'sato@example.com', '大阪府大阪市2-2-2', '090-9876-5432'),
+        ('田中次郎', 'tanaka@example.com', '名古屋市中区3-3-3', '090-5555-7777')
+      ''');
     }
 
-    if (productCount.read(products.id.count()) == 0) {
-      await insertInitialProducts();
+    if (productCount.first['count'] == 0) {
+      await rawExecute('''
+        INSERT INTO products (name, description, price, stock) VALUES
+        ('Webカメラ', '高画質1080p対応Webカメラ', 5980, 15),
+        ('ワイヤレスマウス', '静音設計のワイヤレスマウス', 2480, 25),
+        ('キーボード', 'メカニカルキーボード', 8900, 8),
+        ('モニタースタンド', '高さ調整可能なモニタースタンド', 3200, 12)
+      ''');
     }
+  }
+
+  // デモ用データ取得
+  Future<List<Map<String, dynamic>>> getAllCustomers() {
+    return rawQuery('SELECT * FROM customers ORDER BY created_at DESC');
+  }
+
+  Future<List<Map<String, dynamic>>> getAllProducts() {
+    return rawQuery('SELECT * FROM products ORDER BY created_at DESC');
   }
 }
 

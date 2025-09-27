@@ -10,18 +10,63 @@ DMNotation記法からSQLite WASMデータベースを自動構築するFlutter 
 
 - 🚀 **Web専用**: Flutter Web + SQLite WASMで動作
 - 📝 **DMNotation対応**: 視覚的で直感的なデータモデリング記法
-- 🔧 **自動生成**: テーブル定義からSQL文を自動生成
+- 🔧 **動的スキーマ**: ビルド不要でスキーマを動的生成・変更
+- 🎯 **drift_dev風DAO**: 実行時にDrift風の流暢APIを自動生成
 - 🌐 **ブラウザ内DB**: WebAssemblyによる高速なデータベース処理
 - 📱 **レスポンシブ**: モバイル・デスクトップ対応UI
+- 📊 **6つのサンプルスキーマ**: ECサイト、在庫管理、社員管理など
 
 ## 🛠️ 技術スタック
 
 - **Flutter Web**: フロントエンドフレームワーク
-- **Drift ORM**: SQLiteのType-safe ORM
+- **Drift ORM**: 最小限利用（WASM接続管理のみ）
 - **SQLite WASM**: WebAssemblyベースのSQLite
+- **動的スキーマ**: 実行時テーブル生成・DAO作成
 - **GitHub Pages**: 静的サイトホスティング
 
-## 🚀 初期セットアップ
+## 🏗️ アーキテクチャ設計
+
+### drift_dev風動的アーキテクチャ
+
+本プロジェクトでは、**drift_devのクラス設計パターンを参考にした動的アーキテクチャ**を採用しています。
+
+```
+DMNotation記法
+      ↓
+[DMNotationAnalyzer] ← 2段階解析（テーブル→関係性）
+      ↓
+Analysis Results ← dm_table.dart, dm_column.dart, dm_constraint.dart
+      ↓
+[DynamicDAO] ← Drift風の流暢API (select, into, update, delete)
+      ↓
+SQLite WASM実行
+```
+
+### 実装済みコンポーネント
+
+#### Analysis Layer (分析層)
+- `analysis/dm_notation_analyzer.dart`: DMNotation構文解析
+- `analysis/results/dm_database.dart`: データベース定義
+- `analysis/results/dm_table.dart`: テーブル定義・SQL生成
+- `analysis/results/dm_column.dart`: カラム定義・型システム
+- `analysis/results/dm_constraint.dart`: 制約定義
+
+#### Runtime Layer (実行時層)
+- `runtime/dynamic_dao.dart`: Drift風のDAO・クエリビルダー
+- `database.dart`: 最小限のDrift統合
+
+#### Assets & UI
+- `asset_loader.dart`: 6つのサンプルスキーマ管理
+- `main.dart`: Flutter Web UI
+
+### 設計原則
+
+- **分析と実行の分離**: drift_devのAnalyzer/Writerパターンを参考
+- **実行時型安全**: 動的型変換・バリデーション
+- **流暢API**: `dao.select('table').where(...).get()`
+- **スキーマファースト**: DMNotationから直接DB構築
+
+## 🚀 セットアップ
 
 ### 前提条件
 
@@ -41,17 +86,12 @@ cd dm2sql
 flutter pub get
 ```
 
-3. **Driftコードの生成**
-```bash
-dart run build_runner build
-```
-
-4. **開発サーバーの起動**
+3. **開発サーバーの起動**
 ```bash
 flutter run -d chrome
 ```
 
-5. **本番ビルド（GitHub Pages用）**
+4. **本番ビルド（GitHub Pages用）**
 ```bash
 flutter build web --base-href="/dm2sql/" --output=docs
 ```
@@ -61,85 +101,120 @@ flutter build web --base-href="/dm2sql/" --output=docs
 ```
 dm2sql/
 ├── lib/
-│   ├── database.dart        # Driftデータベース定義
-│   ├── database.g.dart      # 自動生成コード
-│   └── main.dart            # メインアプリケーション
+│   ├── analysis/                    # 分析層（drift_dev風）
+│   │   ├── dm_notation_analyzer.dart  # DMNotation解析エンジン
+│   │   └── results/                 # 解析結果定義
+│   │       ├── dm_database.dart     # データベース定義
+│   │       ├── dm_table.dart        # テーブル定義・SQL生成
+│   │       ├── dm_column.dart       # カラム定義・型システム
+│   │       └── dm_constraint.dart   # 制約定義
+│   ├── runtime/                     # 実行時層
+│   │   └── dynamic_dao.dart         # Drift風動的DAO
+│   ├── database.dart                # 最小限Drift統合
+│   ├── asset_loader.dart            # サンプルスキーマ管理
+│   └── main.dart                    # Flutter Web UI
+├── assets/                          # DMNotationサンプルファイル
+│   ├── simple_test.dmnotation       # テスト用シンプルスキーマ
+│   ├── ecommerce.dmnotation         # ECサイトスキーマ
+│   ├── inventory.dmnotation         # 在庫管理スキーマ
+│   ├── employee.dmnotation          # 社員管理スキーマ
+│   ├── equipment_reservation.dmnotation # 備品予約スキーマ
+│   └── blog.dmnotation              # ブログスキーマ
 ├── web/
-│   ├── .nojekyll            # Jekyll無効化
-│   ├── .htaccess            # WASM MIME設定
-│   ├── sqlite3.wasm         # SQLite WebAssembly
-│   └── drift_worker.dart.js # Drift Web Worker
-├── docs/                    # GitHub Pages配信用（自動生成）
-└── pubspec.yaml             # Web専用依存関係
+│   ├── .nojekyll                    # Jekyll無効化
+│   ├── .htaccess                    # WASM MIME設定
+│   ├── sqlite3.wasm                 # SQLite WebAssembly
+│   └── drift_worker.dart.js         # Drift Web Worker
+└── docs/                            # GitHub Pages配信用（自動生成）
 ```
 
-## 💾 現在のデータベース構造
+## 🎯 実装済み機能
 
-### 顧客テーブル (customers)
-- `id`: 主キー（自動増分）
-- `name`: 顧客名（必須）
-- `email`: メールアドレス（ユニーク）
-- `address`: 住所（任意）
-- `phone`: 電話番号（任意）
-- `created_at`: 作成日時（自動設定）
+### ✅ コア機能
 
-### 商品テーブル (products)
-- `id`: 主キー（自動増分）
-- `name`: 商品名（必須）
-- `description`: 商品説明（任意）
-- `price`: 価格
-- `stock`: 在庫数（デフォルト0）
-- `created_at`: 作成日時（自動設定）
+- [x] **DMNotation解析**: 2段階解析（テーブル→関係性）
+- [x] **動的スキーマ生成**: 実行時CREATE TABLE文生成
+- [x] **型安全システム**: 実行時型変換・バリデーション
+- [x] **外部キー対応**: 推測ロジック付き参照解析
+- [x] **Drift風DAO**: `select`, `into`, `update`, `delete`ビルダー
+- [x] **6つのサンプルスキーマ**: ECサイト〜ブログまで
 
-## 🎯 現在の機能
+### ✅ データ型対応
 
-### ✅ 実装済み
-- [x] Flutter Web + SQLite WASM基盤
-- [x] Drift ORMによるtype-safeなDB操作
-- [x] 顧客・商品データの表示
-- [x] タブ形式のUI
-- [x] 初期データの自動セットアップ
-- [x] エラーハンドリング
-- [x] GitHub Pages対応
+- [x] **基本型**: `integer`, `text`, `real`, `datetime`, `boolean`
+- [x] **制約**: `NOT NULL(!)`、`UNIQUE(@)`、`INDEX(*)`
+- [x] **主キー**: `[カラム{name:type}]`記法
+- [x] **外部キー**: `(カラム{name:type})`記法
 
-### 🎨 UI機能
-- [x] 顧客一覧表示（カード形式）
-- [x] 商品一覧表示（カード形式）
-- [x] ローディング表示
-- [x] エラー表示・再試行機能
-- [x] レスポンシブデザイン
+### ✅ UI機能
 
-## 🗓️ 今後の開発予定
+- [x] **スキーマ選択**: 6つのサンプルスキーマ切り替え
+- [x] **テーブル一覧**: 動的生成されたテーブル表示
+- [x] **データ表示**: 各テーブルのサンプルデータ表示
+- [x] **エラーハンドリング**: 詳細なエラーメッセージ表示
+- [x] **レスポンシブUI**: Material Design 3対応
 
-### Phase 1: DMNotation記法パーサー
-- [ ] DMNotation記法の構文解析機能
-- [ ] テキストからテーブル定義への変換
-- [ ] 関係性（親子・参照・弱参照）の解析
-- [ ] 構文エラーの検出・報告
+### ✅ 技術的成果
 
-### Phase 2: エディター機能
-- [ ] DMNotation記法のテキストエディター
-- [ ] シンタックスハイライト
-- [ ] リアルタイムプレビュー
-- [ ] 自動補完機能
+- [x] **SQLite予約語対応**: バッククォートエスケープ
+- [x] **複合外部キー**: 複数外部キーのSQL生成
+- [x] **依存関係順序**: テーブル作成の正しい順序
+- [x] **推測ロジック**: `from_warehouse_id` → `warehouse`
 
-### Phase 3: SQL生成・実行
-- [ ] DMNotationからCREATE TABLE文の自動生成
-- [ ] インデックス・制約の自動生成
-- [ ] DDL実行とテーブル作成
-- [ ] 初期データの生成・投入
+## 📊 サンプルスキーマ
 
-### Phase 4: データ操作機能
-- [ ] CRUD操作UI
-- [ ] データのインポート・エクスポート
-- [ ] SQLクエリ実行機能
-- [ ] データベーススキーマの可視化
+### 1. シンプルテスト
+パーサーテスト用の基本的なテーブル定義
 
-### Phase 5: 高度な機能
-- [ ] テーブル間関係の可視化
-- [ ] データマイグレーション機能
-- [ ] バックアップ・復元機能
+### 2. ECサイト
+```dmnotation
+顧客{customer}: [顧客ID{id:int}], 顧客名{name:string!}, メール{email:string@}
+-- 注文{order}: [注文ID{id:int}], (顧客ID{customer_id:int}), 注文日時{order_datetime:datetime!}
+   -- 注文明細{order_detail}: [明細ID{id:int}], (注文ID{order_id:int}), (商品ID{product_id:int})
+```
+
+### 3. 在庫管理
+商品・倉庫・入出庫・棚卸などの完全な在庫管理システム
+
+### 4. 社員管理
+社員・勤怠・給与・評価などの人事管理システム
+
+### 5. 備品予約
+備品・予約・利用履歴などの施設管理システム
+
+### 6. ブログ
+ユーザー・投稿・コメント・タグなどのCMSシステム
+
+## 🗓️ 今後の改善計画
+
+### Phase 1: インデント構造解析の完全実装 🚧
+- [ ] 正しい階層構造解析
+- [ ] 推測ロジックの削除
+- [ ] パフォーマンス向上
+
+### Phase 2: UI/UX の改善
+- [ ] リアルタイムプレビュー機能
+- [ ] ER図の可視化
+- [ ] DMNotation構文エラーの行番号表示
+- [ ] テーブルデータの直接編集
+
+### Phase 3: SQL機能の拡張
+- [ ] 複雑なクエリ対応（JOIN, GROUP BY）
+- [ ] インデックス管理UI
+- [ ] スキーママイグレーション
+- [ ] SQLログ表示
+
+### Phase 4: DMNotation記法の拡張
+- [ ] 明示的外部キー定義: `{customer_id:int->customer.id}`
+- [ ] CHECK制約、DEFAULT値
+- [ ] JSON、BLOB、ENUM型対応
+- [ ] カスタムバリデーター
+
+### Phase 5: 開発者向け機能
 - [ ] パフォーマンス分析
+- [ ] Dartコード生成
+- [ ] テストデータ生成
+- [ ] プラグインシステム
 
 ## 🌐 デプロイ
 
@@ -147,8 +222,8 @@ dm2sql/
 本プロジェクトはGitHub Pagesで自動デプロイされます：
 
 1. `docs`フォルダにビルド結果を出力
-2. GitHubリポジトリ設定でPages source を `/docs` に設定
-3. `https://yourusername.github.io/dm2sql/` でアクセス可能
+2. GitHubリポジトリ設定でPages sourceを`/docs`に設定
+3. `https://yourusername.github.io/dm2sql/`でアクセス可能
 
 ### ローカル確認
 ```bash
@@ -160,16 +235,47 @@ flutter build web --output=docs
 cd docs && python -m http.server 8080
 ```
 
-## 📚 DMNotation記法について
+## 📚 DMNotation記法
 
 DMNotation記法は、視覚的で編集しやすい独自のデータモデリング記法です。
 
-### 基本例
+### 基本構文
+
+```dmnotation
+テーブル名{table_name}: [主キー{id:int}], カラム{column:type制約}, ...
+-- 子テーブル{child}: [ID{id:int}], (外部キー{parent_id:int}), データ{data:string}
+   -> 参照テーブル{reference}: [ID{id:int}], 名前{name:string}
 ```
-顧客{customer}: [顧客ID{id:int}], 顧客名{name:string!}, メール{email:string@}
-├─注文{order}: [注文ID{id:int}], (顧客ID{customer_id:int}), 注文日時{order_date:datetime!}
-└─お気に入り{favorite}: [お気に入りID{id:int}], (顧客ID{customer_id:int}), (商品ID{product_id:int})
+
+### 制約記号
+- `!`: NOT NULL制約
+- `@`: UNIQUE制約
+- `*`: INDEX推奨
+
+### 関係記号
+- `--`: カスケード削除
+- `->`: 参照関係
+- `??`: 弱参照
+
+### 複雑な例
+```dmnotation
+在庫移動{stock_movement}: [移動ID{id:int}], (移動元倉庫ID{from_warehouse_id:int}), (移動先倉庫ID{to_warehouse_id:int})
+-> 商品{product}: [商品ID{id:int}], 商品名{name:string!}
 ```
+
+## 🔧 技術的詳細
+
+### 推測ロジック
+現在の実装では、外部キー参照先を以下のロジックで推測：
+
+1. **プレフィックス除去**: `from_warehouse_id` → `warehouse`
+2. **役割マッピング**: `author_id` → `user`
+3. **複合語保持**: `purchase_order_id` → `purchase_order`
+
+### SQL生成の特徴
+- SQLite予約語の自動エスケープ
+- 依存関係順でのテーブル作成
+- 外部キー制約の正しい配置
 
 ## 📄 ライセンス
 
@@ -184,5 +290,6 @@ DMNotation記法は、視覚的で編集しやすい独自のデータモデリ�
 
 ---
 
-**開発者**: Claude Code Team
+**開発者**: Masanobu Takagi
 **最終更新**: 2025年9月27日
+**バージョン**: v2.0 - drift_dev風アーキテクチャ完全実装

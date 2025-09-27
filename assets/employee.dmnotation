@@ -1,0 +1,22 @@
+社員{employee}: [社員ID{id:int}], 社員番号{employee_number:string@}, 氏名{name:string!}, フリガナ{name_kana:string}, メール{email:string@}, 電話{phone:string}, 住所{address:string}, 誕生日{birthday:datetime}, 入社日{hire_date:datetime!}, 退職日{resignation_date:datetime}, 基本給{base_salary:int}, ステータス{status:string!}, 作成日時{created_at:datetime!}
+-- 勤怠{attendance}: [勤怠ID{id:int}], (社員ID{employee_id:int}), 勤務日{work_date:datetime!}, 出勤時刻{check_in_time:datetime}, 退勤時刻{check_out_time:datetime}, 休憩時間{break_minutes:int}, 実働時間{work_minutes:int}, 残業時間{overtime_minutes:int}, 遅刻時間{late_minutes:int}, 早退時間{early_leave_minutes:int}, 勤怠種別{attendance_type:string!}, 備考{note:string}
+-- 給与{salary}: [給与ID{id:int}], (社員ID{employee_id:int}), 支給年月{pay_year_month:string!}, 基本給{base_amount:int!}, 残業手当{overtime_allowance:int}, 各種手当{other_allowances:int}, 支給総額{gross_amount:int!}, 所得税{income_tax:int}, 住民税{resident_tax:int}, 社会保険料{social_insurance:int}, 控除総額{total_deductions:int!}, 差引支給額{net_amount:int!}, 支給日{pay_date:datetime}
+-- 評価{evaluation}: [評価ID{id:int}], (社員ID{employee_id:int}), 評価期間開始{period_start:datetime!}, 評価期間終了{period_end:datetime!}, 総合評価{overall_rating:string!}, 業績評価{performance_rating:string}, 能力評価{skill_rating:string}, コメント{comment:string}, 評価者{evaluator:string}, 評価日{evaluation_date:datetime!}
+-- 有給休暇{paid_leave}: [有給ID{id:int}], (社員ID{employee_id:int}), 付与日{granted_date:datetime!}, 付与日数{granted_days:double!}, 使用日数{used_days:double}, 残日数{remaining_days:double!}, 有効期限{expiry_date:datetime!}
+
+部署{department}: [部署ID{id:int}], 部署名{name:string!}, 部署コード{code:string@}, 説明{description:string}, 親部署ID{parent_id:int}, 部署長{manager_id:int}, 作成日時{created_at:datetime!}
+-> 社員{employee}
+
+役職{position}: [役職ID{id:int}], 役職名{name:string!}, 役職コード{code:string@}, 説明{description:string}, 階級{rank:int}, 基本給範囲下限{min_salary:int}, 基本給範囲上限{max_salary:int}
+-> 社員{employee}
+
+プロジェクト{project}: [プロジェクトID{id:int}], プロジェクト名{name:string!}, プロジェクトコード{code:string@}, 説明{description:string}, 開始日{start_date:datetime!}, 終了予定日{planned_end_date:datetime}, 実際終了日{actual_end_date:datetime}, ステータス{status:string!}, 予算{budget:int}, プロジェクト管理者{manager_id:int}
+-- プロジェクト参加{project_assignment}: [参加ID{id:int}], (プロジェクトID{project_id:int}), (社員ID{employee_id:int}), 役割{role:string}, 参加開始日{start_date:datetime!}, 参加終了日{end_date:datetime}, 稼働率{workload_rate:double}
+   -> 社員{employee}
+
+研修{training}: [研修ID{id:int}], 研修名{name:string!}, 研修種別{type:string!}, 説明{description:string}, 開催日{training_date:datetime!}, 時間{duration_hours:double}, 定員{capacity:int}, 講師{instructor:string}, 費用{cost:int}
+-- 研修受講{training_attendance}: [受講ID{id:int}], (研修ID{training_id:int}), (社員ID{employee_id:int}), 出席状況{attendance_status:string!}, 成績{score:int}, 修了状況{completion_status:string}, 受講日{attendance_date:datetime}
+   -> 社員{employee}
+
+申請{request}: [申請ID{id:int}], (申請者ID{employee_id:int}), 申請種別{request_type:string!}, 申請日{request_date:datetime!}, 開始日{start_date:datetime}, 終了日{end_date:datetime}, 理由{reason:string}, ステータス{status:string!}, 承認者{approver_id:int}, 承認日{approved_date:datetime}, 却下理由{rejection_reason:string}
+-> 社員{employee}

@@ -1,0 +1,5 @@
+顧客{customer}: [顧客ID{id:int}], 顧客名{name:string!}, メール{email:string@}
+
+商品{product}: [商品ID{id:int}], 商品名{name:string!}, 価格{price:int!}
+
+注文{order}: [注文ID{id:int}], (顧客ID{customer_id:int}), 注文日時{order_date:datetime!}
