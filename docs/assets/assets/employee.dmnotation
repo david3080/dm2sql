@@ -12,11 +12,11 @@
 
 プロジェクト{project}: [プロジェクトID{id:int}], プロジェクト名{name:string!}, プロジェクトコード{code:string@}, 説明{description:string}, 開始日{start_date:datetime!}, 終了予定日{planned_end_date:datetime}, 実際終了日{actual_end_date:datetime}, ステータス{status:string!}, 予算{budget:int}, プロジェクト管理者{manager_id:int}
 -- プロジェクト参加{project_assignment}: [参加ID{id:int}], (プロジェクトID{project_id:int}), (社員ID{employee_id:int}), 役割{role:string}, 参加開始日{start_date:datetime!}, 参加終了日{end_date:datetime}, 稼働率{workload_rate:double}
-   -> 社員{employee}
+  -> 社員{employee}
 
 研修{training}: [研修ID{id:int}], 研修名{name:string!}, 研修種別{type:string!}, 説明{description:string}, 開催日{training_date:datetime!}, 時間{duration_hours:double}, 定員{capacity:int}, 講師{instructor:string}, 費用{cost:int}
 -- 研修受講{training_attendance}: [受講ID{id:int}], (研修ID{training_id:int}), (社員ID{employee_id:int}), 出席状況{attendance_status:string!}, 成績{score:int}, 修了状況{completion_status:string}, 受講日{attendance_date:datetime}
-   -> 社員{employee}
+  -> 社員{employee}
 
 申請{request}: [申請ID{id:int}], (申請者ID{employee_id:int}), 申請種別{request_type:string!}, 申請日{request_date:datetime!}, 開始日{start_date:datetime}, 終了日{end_date:datetime}, 理由{reason:string}, ステータス{status:string!}, 承認者{approver_id:int}, 承認日{approved_date:datetime}, 却下理由{rejection_reason:string}
 -> 社員{employee}

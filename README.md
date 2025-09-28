@@ -46,6 +46,7 @@ SQLite WASM実行
 
 #### Analysis Layer (分析層)
 - `analysis/dm_notation_analyzer.dart`: DMNotation構文解析
+- `analysis/dm_notation_validator.dart`: **DMNotationバリデーター**
 - `analysis/results/dm_database.dart`: データベース定義
 - `analysis/results/dm_table.dart`: テーブル定義・SQL生成
 - `analysis/results/dm_column.dart`: カラム定義・型システム
@@ -113,11 +114,16 @@ dm2sql/
 │   ├── database.dart                # SQLite WASM統合（最小限Drift）
 │   ├── asset_loader.dart            # 6スキーマ自動読み込み管理
 │   └── main.dart                    # Flutter Web UI + 高度機能デモ
+├── bin/
+│   └── dmnotation_validator.dart    # **CLIバリデーターツール**
 ├── test/
-│   └── analysis/                    # 包括的テストスイート
-│       ├── dm_notation_analyzer_test.dart    # コア機能テスト
-│       ├── assets_dmnotation_test.dart       # 全スキーマテスト
-│       └── dm_notation_verification_test.dart # 動作検証テスト
+│   ├── analysis/                    # 包括的テストスイート
+│   │   ├── dm_notation_analyzer_test.dart    # コア機能テスト
+│   │   ├── dm_notation_validator_test.dart   # バリデーターテスト
+│   │   ├── assets_dmnotation_test.dart       # 全スキーマテスト
+│   │   └── dm_notation_verification_test.dart # 動作検証テスト
+│   └── cli/                         # CLIツールテスト
+│       └── dmnotation_validator_cli_test.dart # CLIバリデーターテスト
 ├── assets/                          # DMNotationサンプルファイル（網羅的）
 │   ├── simple_test.dmnotation       # 基本構文テスト用
 │   ├── ecommerce.dmnotation         # ECサイト（複雑階層・多重参照）
@@ -144,6 +150,8 @@ dm2sql/
 - [x] **Drift風DAO**: `select`, `into`, `update`, `delete`流暢API
 - [x] **高度機能**: JOIN操作・トランザクション・型安全操作
 - [x] **6つのサンプルスキーマ**: DMNotation記法完全網羅
+- [x] **DMNotationバリデーター**: 構文・意味・ベストプラクティスチェック
+- [x] **CLIバリデーターツール**: コマンドライン版DMNotationチェッカー
 
 ### ✅ データ型対応
 
@@ -335,6 +343,226 @@ DMNotation記法は、視覚的で編集しやすい独自のデータモデリ�
 -> 商品{product}: [商品ID{id:int}], 商品名{name:string!}
 ```
 
+## 🔍 DMNotationバリデーター
+
+DMNotationファイルの品質を向上させるための包括的バリデーターシステムを提供しています。
+
+### バリデーション機能
+
+#### ✅ 実装済み機能
+- **構文バリデーション**: 中括弧対応、主キー/外部キー記法の正確性
+- **参照整合性チェック**: 外部キー参照先テーブル・カラムの存在確認
+- **構造バリデーション**: インデント規則（2スペースの倍数）
+- **命名規則チェック**: テーブル・カラム名の形式確認
+
+#### 🟡 部分実装機能（今後の拡張予定）
+- **SQL予約語警告**: SQLiteで問題となる予約語の検出
+- **テーブル名長さ警告**: 過度に長いテーブル名の検出
+- **パフォーマンスチェック**: 外部キーインデックス推奨など
+- **ベストプラクティス**: created_at/updated_at推奨、コメント推奨など
+
+### バリデーションレベル
+
+```dart
+enum ValidationLevel {
+  basic,     // 最小限の構文チェックのみ
+  standard,  // 標準的なチェック（デフォルト）
+  strict,    // 厳密なベストプラクティスチェック含む
+}
+```
+
+### バリデーション結果
+
+```dart
+class DMValidationResult {
+  final bool isValid;                          // 全体の成功/失敗
+  final List<DMValidationIssue> issues;        // エラー・警告一覧
+  final List<DMValidationWarning> warnings;    // 追加警告
+  final ValidationSeverity severity;           // 最高重要度
+}
+```
+
+#### 重要度レベル
+- **Critical**: 致命的エラー（構文不正など）
+- **Error**: エラー（参照不整合など）
+- **Warning**: 警告（命名規則違反など）
+- **Info**: 情報（改善提案など）
+
+## 🖥️ CLIバリデーターツール
+
+DMNotationファイルをコマンドラインから検証できるツールです。
+
+### インストール・使用方法
+
+#### 基本的な使用
+```bash
+# Dartコマンドで直接実行
+dart run dm2sql:dmnotation_validator assets/ecommerce.dmnotation
+
+# 短縮形でも実行可能
+flutter packages pub run dm2sql:dmnotation_validator assets/simple_test.dmnotation
+```
+
+#### コマンドオプション
+
+```bash
+# ヘルプ表示
+dart run dm2sql:dmnotation_validator --help
+
+# バリデーションレベル指定
+dart run dm2sql:dmnotation_validator -l strict assets/ecommerce.dmnotation
+
+# 構文チェックのみ（高速）
+dart run dm2sql:dmnotation_validator -s assets/simple_test.dmnotation
+
+# JSON形式で結果出力
+dart run dm2sql:dmnotation_validator -j assets/inventory.dmnotation
+
+# 警告を非表示
+dart run dm2sql:dmnotation_validator --no-warnings assets/blog.dmnotation
+
+# 詳細出力
+dart run dm2sql:dmnotation_validator -v assets/employee.dmnotation
+
+# カラー出力無効
+dart run dm2sql:dmnotation_validator --no-color assets/equipment_reservation.dmnotation
+```
+
+#### 利用可能オプション
+
+| オプション | 短縮形 | 説明 |
+|------------|--------|------|
+| `--help` | `-h` | ヘルプを表示 |
+| `--verbose` | `-v` | 詳細な出力を表示 |
+| `--json` | `-j` | JSON形式で結果を出力 |
+| `--level` | `-l` | バリデーションレベル（basic/standard/strict） |
+| `--syntax-only` | `-s` | 構文チェックのみ実行（高速） |
+| `--no-warnings` | `-w` | 警告を表示しない |
+| `--no-performance` | | パフォーマンスチェックを無効 |
+| `--no-best-practices` | | ベストプラクティスチェックを無効 |
+| `--[no-]color` | | カラー出力を有効/無効 |
+
+### 出力例
+
+#### 成功時
+```
+📄 simple_test.dmnotation をバリデーション中...
+
+✅ バリデーション成功!
+📊 サマリー
+────────────────────────────────────────
+問題総数: 0
+
+✨ バリデーション完了！
+```
+
+#### エラー検出時
+```
+📄 ecommerce.dmnotation をバリデーション中...
+
+❌ バリデーション失敗
+
+🚫 エラー (2件):
+  🚫 3:0 [syntax] 中括弧の対応が正しくありません
+      💡 括弧の開閉を確認してください
+  🚫 5:0 [references] テーブル "customer" にカラム "id" が存在しません
+
+⚠️  警告 (3件):
+  ⚠️  2:0 [structure] インデントは2スペースの倍数である必要があります
+      💡 2スペース単位でインデントしてください
+  ⚠️  7:0 [naming] テーブル名 "order" はSQL予約語です
+      💡 バッククォートでエスケープされますが、別の名前を推奨します
+
+📊 サマリー
+────────────────────────────────────────
+問題総数: 5
+  🚫 エラー: 2
+  ⚠️  警告: 3
+
+🔧 修正が必要です
+```
+
+#### JSON出力
+```json
+{
+  "file": "assets/ecommerce.dmnotation",
+  "valid": false,
+  "severity": "error",
+  "issues": [
+    {
+      "line": 3,
+      "column": 0,
+      "message": "中括弧の対応が正しくありません",
+      "severity": "error",
+      "category": "syntax",
+      "suggestion": "括弧の開閉を確認してください"
+    }
+  ],
+  "warnings": [
+    {
+      "line": 2,
+      "message": "インデントは2スペースの倍数である必要があります",
+      "category": "structure",
+      "suggestion": "2スペース単位でインデントしてください"
+    }
+  ],
+  "summary": {
+    "total_issues": 1,
+    "errors": 1,
+    "warnings": 1,
+    "suggestions": 2
+  }
+}
+```
+
+### 終了コード
+
+CLIツールは以下の終了コードを返します：
+
+| コード | 意味 |
+|--------|------|
+| `0` | バリデーション成功（または警告のみ） |
+| `1` | エラーが発見されました |
+| `2` | 致命的エラーが発見されました |
+| `3` | 予期しない実行エラー |
+
+### 活用例
+
+#### CIでのバリデーション
+```bash
+# GitHubActionsなどでの自動チェック
+dart run dm2sql:dmnotation_validator assets/*.dmnotation || exit 1
+```
+
+#### 複数ファイルのバッチ処理
+```bash
+# 全DMNotationファイルを一括チェック
+find . -name "*.dmnotation" -exec dart run dm2sql:dmnotation_validator {} \;
+```
+
+#### 開発時の品質チェック
+```bash
+# Strictモードでの厳密チェック
+dart run dm2sql:dmnotation_validator -l strict -v schema.dmnotation
+```
+
+### 制限事項・今後の改善予定
+
+#### 🟡 実装が部分的な機能
+- **SQL予約語チェック**: 検出ロジックが未完成
+- **テーブル名長さ警告**: 閾値チェックが未実装
+- **パフォーマンス推奨**: インデックス提案が未完成
+- **ベストプラクティス**: created_at推奨など未実装
+- **コメント推奨**: ドキュメント化推奨が未実装
+
+#### ✅ 完全動作する機能
+- **構文チェック**: 中括弧、主キー、外部キー記法
+- **参照整合性**: 外部キー参照先の存在確認
+- **インデント検証**: 2スペース倍数ルール
+- **CLI操作**: 全オプション、出力形式、終了コード
+
+これらの制限事項は将来のバージョンで順次改善予定です。現在でもDMNotationファイルの基本的な品質チェックには十分活用できます。
+
 ## 🔧 技術的詳細
 
 ### 推測ロジック
@@ -362,6 +590,8 @@ DMNotation記法は、視覚的で編集しやすい独自のデータモデリ�
 - **SQLite WASM統合**: ブラウザ内データベース操作
 - **6つのサンプルスキーマ**: ECサイト〜ブログまで実用例
 - **包括的テスト**: パーサー・DAO・SQL生成の全機能テスト
+- **DMNotationバリデーター**: 構文・参照整合性チェック（コア機能完成）
+- **CLIバリデーターツール**: コマンドライン版品質チェッカー（完全動作）
 
 #### 🟡 改善予定機能
 - **JOIN操作**: 現在は簡易実装、本格的なクエリビルダー実装予定
@@ -369,6 +599,7 @@ DMNotation記法は、視覚的で編集しやすい独自のデータモデリ�
 - **@記法拡張**: 明示的外部キー指定の完全対応
 - **スキーママイグレーション**: バージョン管理・マイグレーション機能
 - **パフォーマンス最適化**: 大規模スキーマ対応
+- **バリデーター拡張**: SQL予約語・ベストプラクティス・パフォーマンスチェック完成
 
 ### LLMによるプロジェクト分析用プロンプト
 

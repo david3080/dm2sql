@@ -12,10 +12,11 @@
 カテゴリ{category}: [カテゴリID{id:int}], カテゴリ名{name:string!}, 説明{description:string}, 親カテゴリID{parent_id:int}
 -> 商品{product}
 
-発注{purchase_order}: [発注ID{id:int}], (仕入先ID{supplier_id:int}), 発注日{order_date:datetime!}, 希望納期{requested_delivery_date:datetime}, 合計金額{total_amount:int!}, ステータス{status:string!}, 作成者{created_by:string}, 承認者{approved_by:string}
+発注{purchase_order}: [発注ID{id:int}], (仕入先ID{nonexistent_supplier_id:int}), 発注日{order_date:datetime!}, 希望納期{requested_delivery_date:datetime}, 合計金額{total_amount:int!}, ステータス{status:string!}, 作成者{created_by:string}, 承認者{approved_by:string}
 -- 発注明細{purchase_order_detail}: [明細ID{id:int}], (発注ID{purchase_order_id:int}), (商品ID{product_id:int}), 発注数量{order_quantity:int!}, 単価{unit_price:int!}, 小計{subtotal:int!}
   -> 商品{product}
 -> 仕入先{supplier}
 
 在庫移動{stock_movement}: [移動ID{id:int}], (商品ID{product_id:int}), (移動元倉庫ID{from_warehouse_id:int}), (移動先倉庫ID{to_warehouse_id:int}), 移動数量{quantity:int!}, 移動理由{reason:string}, 移動日時{movement_date:datetime!}, 実施者{executor:string}
 -> 商品{product}
+-> 移動元倉庫{from_warehouse}

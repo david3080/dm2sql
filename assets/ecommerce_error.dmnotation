@@ -1,13 +1,10 @@
 顧客{customer}: [顧客ID{id:int}], 顧客名{name:string!}, メール{email:string@}, パスワード{password:string!}, 住所{address:string}, 電話{phone:string}, 誕生日{birthday:datetime}, 作成日時{created_at:datetime!}, 更新日時{updated_at:datetime!}
 -- 注文{order}: [注文ID{id:int}], (顧客ID{customer_id:int}), 注文日時{order_datetime:datetime!}, 配送先住所{shipping_address:string!}, 配送先電話{shipping_phone:string}, 小計{subtotal:int!}, 送料{shipping_fee:int}, 税額{tax_amount:int}, 合計金額{total_amount:int!}, ステータス{status:string!}, 作成日時{created_at:datetime!}
-  -- 注文明細{order_detail}: [明細ID{id:int}], (注文ID{order_id:int}), (商品ID{product_id:int}), 数量{quantity:int!}, 注文時単価{unit_price:int!}, 小計{subtotal:int!}
+   -- 注文明細{order_detail}: [明細ID{id:int}], (注文ID{order_id:int}), (商品ID{product_id:int}), 数量{quantity:int!}, 注文時単価{unit_price:int!}, 小計{subtotal:int!}
     -> 商品{product}: [商品ID{id:int}], 商品名{name:string!}, 商品説明{description:string}, 標準売価{std_price:int!}, 標準原価{std_cost:double}, 在庫数{stock_qty:int!}, 重量{weight:double}, サイズ{size:string}, 画像URL{image_url:string}, ステータス{status:string!}, 作成日時{created_at:datetime!}
 -- お気に入り{favorite}: [お気に入りID{id:int}], (顧客ID{customer_id:int}), (商品ID{product_id:int}), 登録日時{registered_at:datetime!}
-  -> 商品{product}
 -- カート{cart}: [カートID{id:int}], (顧客ID{customer_id:int}), (商品ID{product_id:int}), 数量{quantity:int!}, 追加日時{added_at:datetime!}
-  -> 商品{product}
--- レビュー{review}: [レビューID{id:int}], (顧客ID{customer_id:int}), (商品ID{product_id:int}), 評価{rating:int!}, コメント{comment:string}, 投稿日時{posted_at:datetime!}
-  -> 商品{product}
+ -- レビュー{review}: [レビューID{id:int}], (顧客ID{customer_id:int}), (商品ID{product_id:int}), 評価{rating:int!}, コメント{comment:string}, 投稿日時{posted_at:datetime!}
 
 カテゴリ{category}: [カテゴリID{id:int}], カテゴリ名{name:string!}, 説明{description:string}, 表示順{sort_order:int}, 親カテゴリID{parent_id:int}, 作成日時{created_at:datetime!}
 -> 商品{product}

@@ -103,16 +103,24 @@ void main() {
       const dmNotation = '''
 顧客{customer}: [顧客ID{id:int}], 顧客名{name:string!}
 -- 注文{order}: [注文ID{id:int}], (顧客ID{customer_id:int})
-      -- 注文明細{order_detail}: [明細ID{id:int}], (注文ID{order_id:int})  // 4スペース（正しくは2スペース）
+    -- 注文明細{order_detail}: [明細ID{id:int}], (注文ID{order_id:int})
 ''';
 
       final result = DMNotationAnalyzer.analyze(dmNotation);
 
-      // インデントエラーがあっても解析は成功するが、階層が正しく認識される
+      // 解析が成功することを確認
       expect(result.isSuccess, isTrue);
 
       final db = result.database!;
+
+      // テーブルが作成されていることを確認
+      expect(db.tables.any((t) => t.sqlName == 'order_detail'), isTrue);
+
       final orderDetailTable = db.tables.firstWhere((t) => t.sqlName == 'order_detail');
+
+      // 外部キーが存在することを確認
+      expect(orderDetailTable.foreignKeys.any((fk) => fk.columnName == 'order_id'), isTrue);
+
       final orderIdFk = orderDetailTable.foreignKeys.firstWhere((fk) => fk.columnName == 'order_id');
       expect(orderIdFk.referencedTable, equals('order'));
     });
@@ -120,6 +128,8 @@ void main() {
     test('推測ロジックのフォールバック', () {
       const dmNotation = '''
 商品{product}: [商品ID{id:int}], 商品名{name:string!}
+
+ユーザー{user}: [ユーザーID{id:int}], ユーザー名{name:string!}
 
 レビュー{review}: [レビューID{id:int}], (商品ID{product_id:int}), (投稿者ID{author_id:int})
 ''';
