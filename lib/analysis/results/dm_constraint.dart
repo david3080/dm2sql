@@ -43,8 +43,8 @@ class DMForeignKey {
   /// 外部キーのSQL型
   final String sqlType;
 
-  /// 参照先テーブル名
-  final String referencedTable;
+  /// 参照先テーブル名（解析中に更新される可能性があるためmutable）
+  String referencedTable;
 
   /// 参照先カラム名
   final String referencedColumn;
@@ -61,7 +61,7 @@ class DMForeignKey {
   /// 制約
   final List<DMColumnConstraint> constraints;
 
-  const DMForeignKey({
+  DMForeignKey({
     required this.columnName,
     required this.displayName,
     required this.sqlType,

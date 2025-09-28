@@ -123,72 +123,38 @@ class DMNotationAnalyzer {
 
   /// 内部解析処理
   DMAnalysisResult _analyzeInternal(String text, String databaseName, int version) {
-    final lines = text.split('\n');
-    final tables = <DMTable>[];
-    final relationships = <DMRelationship>[];
     final errors = <DMAnalysisError>[];
 
-    // 行情報解析
+    // Phase 1: 行情報解析
     final lineInfos = <_LineInfo>[];
+    final lines = text.split('\n');
     for (int i = 0; i < lines.length; i++) {
       lineInfos.add(_analyzeLine(lines[i], i + 1));
     }
 
-    // 階層構造の解析
+    // Phase 2: 階層構造構築
     final hierarchyResult = _analyzeHierarchy(lineInfos);
     if (!hierarchyResult.isSuccess) {
       errors.addAll(hierarchyResult.errors);
+      return DMAnalysisResult.failure(errors);
     }
 
-    // 1回目：完全定義されたテーブルを収集
-    final tableMap = <String, DMTable>{};
-    for (int i = 0; i < lines.length; i++) {
-      final line = lines[i].trim();
-      if (line.isEmpty || _isRelationshipLine(line)) continue;
+    // Phase 3: テーブル定義抽出（階層構造から）
+    final tableExtractionResult = _extractTablesFromHierarchy(hierarchyResult.nodes);
+    errors.addAll(tableExtractionResult.errors);
+    final tables = tableExtractionResult.tables;
+    final tableMap = {for (var t in tables) t.sqlName: t};
 
-      final tableResult = _parseTableDefinition(line, i + 1);
-      if (tableResult.isSuccess && tableResult.table != null) {
-        tables.add(tableResult.table!);
-        tableMap[tableResult.table!.sqlName] = tableResult.table!;
-      } else {
-        errors.addAll(tableResult.errors);
-      }
-    }
+    // Phase 4: 関係性抽出（階層構造から）
+    final relationshipResult = _extractRelationshipsFromHierarchy(hierarchyResult.nodes);
+    errors.addAll(relationshipResult.errors);
+    final relationships = relationshipResult.relationships;
 
-    // 2回目：関係性と子テーブル処理
-    String? currentParent;
-    for (int i = 0; i < lines.length; i++) {
-      final line = lines[i];
-      final trimmedLine = line.trim();
-      if (trimmedLine.isEmpty) continue;
+    // Phase 5: 外部キー解決（階層情報活用）
+    final foreignKeyResult = _resolveForeignKeysWithHierarchy(tables, relationships);
+    errors.addAll(foreignKeyResult.errors);
 
-      // 親テーブルの検出
-      if (!_isRelationshipLine(trimmedLine)) {
-        final match = RegExp(r'^([^{]+)\{([^}]+)\}:').firstMatch(trimmedLine);
-        if (match != null) {
-          currentParent = match.group(2)!.trim();
-        }
-        continue;
-      }
-
-      // 関係性処理
-      if (currentParent != null) {
-        final relationshipResult = _parseRelationship(trimmedLine, currentParent, i + 1, tableMap);
-        if (relationshipResult.isSuccess) {
-          if (relationshipResult.relationship != null) {
-            relationships.add(relationshipResult.relationship!);
-          }
-          if (relationshipResult.childTable != null && !tableMap.containsKey(relationshipResult.childTable!.sqlName)) {
-            tables.add(relationshipResult.childTable!);
-            tableMap[relationshipResult.childTable!.sqlName] = relationshipResult.childTable!;
-          }
-        } else {
-          errors.addAll(relationshipResult.errors);
-        }
-      }
-    }
-
-    // 3回目：外部キー検証
+    // Phase 6: 最終検証
     final validationErrors = _validateForeignKeys(tables);
     errors.addAll(validationErrors);
 
@@ -446,27 +412,64 @@ class DMNotationAnalyzer {
     for (final lineInfo in lineInfos) {
       if (lineInfo.isEmpty) continue;
 
-      // インデントレベルに基づいてスタックを調整
-      while (nodeStack.isNotEmpty && nodeStack.last.indentLevel >= lineInfo.indentLevel) {
-        nodeStack.removeLast();
-      }
+      // 関係性行の場合は特別な処理
+      if (lineInfo.isRelationship) {
+        // 適切な親ノードを検索
+        _HierarchyNode? parentNode;
 
-      // 新しいノードを作成
-      final node = _HierarchyNode(
-        lineInfo: lineInfo,
-        parent: nodeStack.isNotEmpty ? nodeStack.last : null,
-        children: [],
-      );
+        // インデントレベルに基づいて親を決定
+        if (lineInfo.indentLevel > 0) {
+          // インデントされている関係性行：より小さいインデントレベルのノードを探す
+          for (int i = nodeStack.length - 1; i >= 0; i--) {
+            final stackNode = nodeStack[i];
+            if (stackNode.indentLevel < lineInfo.indentLevel) {
+              parentNode = stackNode;
+              break;
+            }
+          }
+        } else {
+          // ルートレベルの関係性行：直前のテーブル定義を親とする
+          for (int i = hierarchyNodes.length - 1; i >= 0; i--) {
+            final rootNode = hierarchyNodes[i];
+            if (rootNode.isTableDefinition) {
+              parentNode = rootNode;
+              break;
+            }
+          }
+        }
 
-      // 親ノードに子として追加
-      if (nodeStack.isNotEmpty) {
-        nodeStack.last.children.add(node);
+        final node = _HierarchyNode(
+          lineInfo: lineInfo,
+          parent: parentNode,
+          children: [],
+        );
+
+        if (parentNode != null) {
+          parentNode.children.add(node);
+        } else {
+          hierarchyNodes.add(node);
+        }
+
+        // 関係性行もスタックに追加（子の関係性行の親になる可能性がある）
+        nodeStack.add(node);
       } else {
-        hierarchyNodes.add(node);
-      }
+        // テーブル定義行の場合は既存のロジック
+        while (nodeStack.isNotEmpty && nodeStack.last.indentLevel >= lineInfo.indentLevel) {
+          nodeStack.removeLast();
+        }
 
-      // 関係性行でなければスタックに追加（次の子のために）
-      if (!lineInfo.isRelationship) {
+        final node = _HierarchyNode(
+          lineInfo: lineInfo,
+          parent: nodeStack.isNotEmpty ? nodeStack.last : null,
+          children: [],
+        );
+
+        if (nodeStack.isNotEmpty) {
+          nodeStack.last.children.add(node);
+        } else {
+          hierarchyNodes.add(node);
+        }
+
         nodeStack.add(node);
       }
     }
@@ -488,6 +491,229 @@ class DMNotationAnalyzer {
     };
 
     return compoundWords.contains(word);
+  }
+
+  /// 階層構造からテーブル定義を抽出
+  _TableExtractionResult _extractTablesFromHierarchy(List<_HierarchyNode> hierarchyNodes) {
+    final tables = <DMTable>[];
+    final errors = <DMAnalysisError>[];
+
+    void processNode(_HierarchyNode node) {
+      if (node.isTableDefinition) {
+        final tableResult = _parseTableDefinition(node.lineInfo.trimmedLine, node.lineInfo.lineNumber);
+        if (tableResult.isSuccess && tableResult.table != null) {
+          tables.add(tableResult.table!);
+        } else {
+          errors.addAll(tableResult.errors);
+        }
+      } else if (node.lineInfo.isRelationship) {
+        // 関係性行にテーブル定義が含まれているかチェック
+        final content = _extractRelationshipContent(node.lineInfo.trimmedLine);
+        if (content.contains(':')) {
+          // テーブル定義を含む関係性行
+          final tableResult = _parseTableDefinition(content, node.lineInfo.lineNumber);
+          if (tableResult.isSuccess && tableResult.table != null) {
+            tables.add(tableResult.table!);
+          } else {
+            errors.addAll(tableResult.errors);
+          }
+        }
+      }
+
+      for (final child in node.children) {
+        processNode(child);
+      }
+    }
+
+    for (final rootNode in hierarchyNodes) {
+      processNode(rootNode);
+    }
+
+    return _TableExtractionResult.mixed(tables, errors);
+  }
+
+  /// 階層構造から関係性を抽出
+  _RelationshipExtractionResult _extractRelationshipsFromHierarchy(List<_HierarchyNode> hierarchyNodes) {
+    final relationships = <DMRelationship>[];
+    final errors = <DMAnalysisError>[];
+
+    void processNode(_HierarchyNode node) {
+      if (node.lineInfo.isRelationship) {
+        final relationshipType = node.relationshipType;
+
+        if (relationshipType != null) {
+          // 関係性行から子テーブル名を抽出
+          final content = _extractRelationshipContent(node.lineInfo.trimmedLine);
+          final match = RegExp(r'\{([^}]+)\}').firstMatch(content);
+          if (match != null) {
+            final childTableName = match.group(1)!.trim();
+
+            // 親テーブル名を決定
+            String? parentTableName;
+
+            // 階層を考慮した親テーブル名の決定
+            _HierarchyNode? parentNode = node.parent;
+
+            // 親ノードから適切なテーブル名を取得
+            while (parentNode != null) {
+              if (parentNode.isTableDefinition) {
+                parentTableName = parentNode.tableName;
+                break;
+              } else if (parentNode.lineInfo.isRelationship) {
+                // 親も関係性行の場合、その関係性行から子テーブル名を取得
+                final parentContent = _extractRelationshipContent(parentNode.lineInfo.trimmedLine);
+                final parentMatch = RegExp(r'\{([^}]+)\}').firstMatch(parentContent);
+                if (parentMatch != null) {
+                  parentTableName = parentMatch.group(1)!.trim();
+                  break;
+                }
+              }
+              parentNode = parentNode.parent;
+            }
+
+            // 親が見つからない場合（ルートレベル）、直前のテーブル定義を探す
+            if (parentTableName == null) {
+              for (int i = hierarchyNodes.length - 1; i >= 0; i--) {
+                final rootNode = hierarchyNodes[i];
+                if (rootNode.isTableDefinition) {
+                  parentTableName = rootNode.tableName;
+                  break;
+                }
+              }
+            }
+
+            if (parentTableName != null) {
+              relationships.add(DMRelationship(
+                parentTable: parentTableName,
+                childTable: childTableName,
+                type: relationshipType,
+              ));
+            } else {
+              errors.add(DMAnalysisError(
+                line: node.lineInfo.lineNumber,
+                column: 0,
+                message: '関係性行の親テーブルが見つかりません: ${node.lineInfo.trimmedLine}',
+                type: DMErrorType.semanticError,
+              ));
+            }
+          } else {
+            errors.add(DMAnalysisError(
+              line: node.lineInfo.lineNumber,
+              column: 0,
+              message: '関係性行から子テーブル名を抽出できませんでした: ${node.lineInfo.trimmedLine}',
+              type: DMErrorType.syntaxError,
+            ));
+          }
+        }
+      }
+
+      for (final child in node.children) {
+        processNode(child);
+      }
+    }
+
+    for (final rootNode in hierarchyNodes) {
+      processNode(rootNode);
+    }
+
+    return _RelationshipExtractionResult.mixed(relationships, errors);
+  }
+
+  /// 関係性行からコンテンツ部分を抽出
+  String _extractRelationshipContent(String line) {
+    if (line.startsWith('--')) return line.substring(2).trim();
+    if (line.startsWith('->')) return line.substring(2).trim();
+    if (line.startsWith('??')) return line.substring(2).trim();
+    return line;
+  }
+
+  /// 階層情報を活用して外部キーを解決
+  _ForeignKeyResolutionResult _resolveForeignKeysWithHierarchy(List<DMTable> tables, List<DMRelationship> relationships) {
+    final errors = <DMAnalysisError>[];
+    final relationshipMap = <String, List<DMRelationship>>{};
+
+    // 関係性をマップに整理
+    for (final rel in relationships) {
+      relationshipMap.putIfAbsent(rel.childTable, () => []).add(rel);
+    }
+
+    // 各テーブルの外部キーを解決
+    for (final table in tables) {
+      for (final fk in table.foreignKeys) {
+        bool resolved = false;
+
+        // 1. 階層関係から参照先を特定
+        final parentRelations = relationshipMap[table.sqlName] ?? [];
+        for (final relation in parentRelations) {
+          if (relation.type == DMRelationshipType.cascade && fk.columnName.contains(relation.parentTable)) {
+            fk.referencedTable = relation.parentTable;
+            resolved = true;
+            break;
+          }
+        }
+
+        if (resolved) continue;
+
+        // 2. 明示的参照関係から特定
+        for (final relation in relationships) {
+          if (relation.type == DMRelationshipType.reference &&
+              relation.childTable == table.sqlName &&
+              fk.columnName.contains(relation.parentTable)) {
+            fk.referencedTable = relation.parentTable;
+            resolved = true;
+            break;
+          }
+        }
+
+        if (resolved) continue;
+
+        // 3. フォールバック: 既存の推測ロジック
+        final inferredTable = _inferTableFromColumnName(fk.columnName);
+        if (inferredTable != 'unknown') {
+          fk.referencedTable = inferredTable;
+        }
+      }
+    }
+
+    return _ForeignKeyResolutionResult.success();
+  }
+
+  /// カラム名から参照テーブルを推測（既存ロジック改良版）
+  String _inferTableFromColumnName(String columnName) {
+    if (!columnName.endsWith('_id')) return 'unknown';
+
+    var tableName = columnName.substring(0, columnName.length - 3);
+
+    // 特定の役割パターンをマッピング
+    final roleToTable = {
+      'author': 'user',
+      'uploader': 'user',
+      'commenter': 'user',
+      'follower': 'user',
+      'following': 'user',
+    };
+
+    // プレフィックス除去（from_, to_, original_, conflicting_, etc.）
+    // ただし、purchase_order のような複合語は除外
+    if (tableName.contains('_') && !_isCompoundWord(tableName)) {
+      final parts = tableName.split('_');
+      if (parts.length >= 2) {
+        tableName = parts.last;
+      }
+    }
+
+    // 役割マッピングを適用
+    final mappedTable = roleToTable[tableName] ?? tableName;
+
+    // 複合参照の処理（original_reservation → reservation）
+    if (mappedTable.contains('_') && !_isCompoundWord(mappedTable)) {
+      final parts = mappedTable.split('_');
+      if (parts.length >= 2) {
+        return parts.last;
+      }
+    }
+
+    return mappedTable;
   }
 
   /// 外部キー検証
@@ -571,12 +797,46 @@ class _HierarchyNode {
   _HierarchyNode? findParentTableNode() {
     var current = parent;
     while (current != null) {
-      if (!current.lineInfo.isRelationship && current.lineInfo.trimmedLine.contains('{') && current.lineInfo.trimmedLine.contains('}:')) {
+      if (current.isTableDefinition) {
         return current;
       }
       current = current.parent;
     }
     return null;
+  }
+
+  /// このノードがテーブル定義ノードかどうか
+  bool get isTableDefinition {
+    return !lineInfo.isRelationship &&
+           lineInfo.trimmedLine.contains('{') &&
+           lineInfo.trimmedLine.contains('}:');
+  }
+
+  /// このノードのテーブル名を取得（テーブル定義ノードの場合）
+  String? get tableName {
+    if (!isTableDefinition) return null;
+    final match = RegExp(r'\{([^}]+)\}:').firstMatch(lineInfo.trimmedLine);
+    return match?.group(1)?.trim();
+  }
+
+  /// このノードの関係性タイプを取得（関係性ノードの場合）
+  DMRelationshipType? get relationshipType {
+    if (!lineInfo.isRelationship) return null;
+    final line = lineInfo.trimmedLine;
+    if (line.startsWith('--')) return DMRelationshipType.cascade;
+    if (line.startsWith('->')) return DMRelationshipType.reference;
+    if (line.startsWith('??')) return DMRelationshipType.weak;
+    return null;
+  }
+
+  /// 全ての子孫ノードを深さ優先で取得
+  List<_HierarchyNode> getAllDescendants() {
+    final descendants = <_HierarchyNode>[];
+    for (final child in children) {
+      descendants.add(child);
+      descendants.addAll(child.getAllDescendants());
+    }
+    return descendants;
   }
 
   @override
@@ -617,5 +877,60 @@ class _RelationshipParseResult {
 
   factory _RelationshipParseResult.failure(List<DMAnalysisError> errors) {
     return _RelationshipParseResult._(false, null, null, errors);
+  }
+}
+
+/// テーブル抽出結果
+class _TableExtractionResult {
+  final List<DMTable> tables;
+  final List<DMAnalysisError> errors;
+
+  const _TableExtractionResult._(this.tables, this.errors);
+
+  factory _TableExtractionResult.success(List<DMTable> tables) {
+    return _TableExtractionResult._(tables, []);
+  }
+
+  factory _TableExtractionResult.failure(List<DMAnalysisError> errors) {
+    return _TableExtractionResult._([], errors);
+  }
+
+  factory _TableExtractionResult.mixed(List<DMTable> tables, List<DMAnalysisError> errors) {
+    return _TableExtractionResult._(tables, errors);
+  }
+}
+
+/// 関係性抽出結果
+class _RelationshipExtractionResult {
+  final List<DMRelationship> relationships;
+  final List<DMAnalysisError> errors;
+
+  const _RelationshipExtractionResult._(this.relationships, this.errors);
+
+  factory _RelationshipExtractionResult.success(List<DMRelationship> relationships) {
+    return _RelationshipExtractionResult._(relationships, []);
+  }
+
+  factory _RelationshipExtractionResult.failure(List<DMAnalysisError> errors) {
+    return _RelationshipExtractionResult._([], errors);
+  }
+
+  factory _RelationshipExtractionResult.mixed(List<DMRelationship> relationships, List<DMAnalysisError> errors) {
+    return _RelationshipExtractionResult._(relationships, errors);
+  }
+}
+
+/// 外部キー解決結果
+class _ForeignKeyResolutionResult {
+  final List<DMAnalysisError> errors;
+
+  const _ForeignKeyResolutionResult._(this.errors);
+
+  factory _ForeignKeyResolutionResult.success() {
+    return _ForeignKeyResolutionResult._([]);
+  }
+
+  factory _ForeignKeyResolutionResult.failure(List<DMAnalysisError> errors) {
+    return _ForeignKeyResolutionResult._(errors);
   }
 }

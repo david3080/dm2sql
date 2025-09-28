@@ -427,6 +427,11 @@ class _DataViewerPageState extends State<DataViewerPage> {
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
         actions: [
           IconButton(
+            icon: const Icon(Icons.analytics),
+            onPressed: _showAdvancedDemoDialog,
+            tooltip: '高度な機能デモ',
+          ),
+          IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: _loadTablesData,
             tooltip: 'データを再読み込み',
@@ -582,4 +587,474 @@ class _DataViewerPageState extends State<DataViewerPage> {
     if (value is String && value.isEmpty) return '(空文字)';
     return value.toString();
   }
+
+  /// 高度な機能のデモダイアログ
+  void _showAdvancedDemoDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('高度な機能デモ'),
+        content: const Text('DynamicDAOの高度な機能をデモンストレーションします。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('キャンセル'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(context);
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => AdvancedDemoPage(
+                    dao: dao,
+                    schema: schema!,
+                  ),
+                ),
+              );
+            },
+            child: const Text('デモを開始'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 高度な機能デモページ
+class AdvancedDemoPage extends StatefulWidget {
+  final DynamicDAO dao;
+  final DMDatabase schema;
+
+  const AdvancedDemoPage({
+    super.key,
+    required this.dao,
+    required this.schema,
+  });
+
+  @override
+  State<AdvancedDemoPage> createState() => _AdvancedDemoPageState();
+}
+
+class _AdvancedDemoPageState extends State<AdvancedDemoPage> {
+  final List<DemoResult> _results = [];
+  bool _isRunning = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('高度な機能デモ'),
+        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
+      ),
+      body: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'DynamicDAO 高度機能デモ',
+                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'JOIN操作、トランザクション、型安全操作などの高度な機能をデモンストレーションします。',
+                  style: TextStyle(fontSize: 14, color: Colors.grey),
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    ElevatedButton(
+                      onPressed: _isRunning ? null : _runJoinDemo,
+                      child: const Text('JOIN操作デモ'),
+                    ),
+                    const SizedBox(width: 12),
+                    ElevatedButton(
+                      onPressed: _isRunning ? null : _runTransactionDemo,
+                      child: const Text('トランザクションデモ'),
+                    ),
+                    const SizedBox(width: 12),
+                    ElevatedButton(
+                      onPressed: _isRunning ? null : _runTypeSafetyDemo,
+                      child: const Text('型安全性デモ'),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                ElevatedButton(
+                  onPressed: _results.isEmpty ? null : _clearResults,
+                  child: const Text('結果をクリア'),
+                ),
+              ],
+            ),
+          ),
+          const Divider(),
+          Expanded(
+            child: _results.isEmpty
+                ? const Center(
+                    child: Text(
+                      'デモボタンを押して機能をテストしてください',
+                      style: TextStyle(fontSize: 16, color: Colors.grey),
+                    ),
+                  )
+                : ListView.builder(
+                    padding: const EdgeInsets.all(16),
+                    itemCount: _results.length,
+                    itemBuilder: (context, index) {
+                      final result = _results[index];
+                      return Card(
+                        margin: const EdgeInsets.only(bottom: 12),
+                        child: ExpansionTile(
+                          title: Text(
+                            result.title,
+                            style: const TextStyle(fontWeight: FontWeight.bold),
+                          ),
+                          subtitle: Text(result.description),
+                          leading: Icon(
+                            result.isSuccess ? Icons.check_circle : Icons.error,
+                            color: result.isSuccess ? Colors.green : Colors.red,
+                          ),
+                          children: [
+                            Padding(
+                              padding: const EdgeInsets.all(16),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text(
+                                    'SQL:',
+                                    style: TextStyle(fontWeight: FontWeight.bold),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Container(
+                                    width: double.infinity,
+                                    padding: const EdgeInsets.all(8),
+                                    decoration: BoxDecoration(
+                                      color: Colors.grey[100],
+                                      borderRadius: BorderRadius.circular(4),
+                                    ),
+                                    child: Text(
+                                      result.sql,
+                                      style: const TextStyle(
+                                        fontFamily: 'monospace',
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 12),
+                                  const Text(
+                                    '結果:',
+                                    style: TextStyle(fontWeight: FontWeight.bold),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Container(
+                                    width: double.infinity,
+                                    padding: const EdgeInsets.all(8),
+                                    decoration: BoxDecoration(
+                                      color: Colors.grey[50],
+                                      borderRadius: BorderRadius.circular(4),
+                                    ),
+                                    child: Text(
+                                      result.result,
+                                      style: const TextStyle(fontSize: 12),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// JOIN操作のデモ
+  Future<void> _runJoinDemo() async {
+    setState(() => _isRunning = true);
+
+    try {
+      // 顧客と注文のJOIN（ECサイトスキーマの場合）
+      if (widget.schema.hasTable('customer') && widget.schema.hasTable('order')) {
+        const sql = '''
+          SELECT
+            c.name as customer_name,
+            COUNT(o.id) as order_count,
+            COALESCE(SUM(o.total_amount), 0) as total_spent
+          FROM customer c
+          LEFT JOIN `order` o ON c.id = o.customer_id
+          GROUP BY c.id, c.name
+          ORDER BY total_spent DESC
+        ''';
+
+        final result = await widget.dao.customSelect(sql);
+
+        _addResult(DemoResult(
+          title: 'JOIN操作: 顧客別注文統計',
+          description: '顧客と注文テーブルをJOINして統計を取得',
+          sql: sql,
+          result: _formatJoinResult(result),
+          isSuccess: true,
+        ));
+      }
+      // ブログスキーマの場合
+      else if (widget.schema.hasTable('user') && widget.schema.hasTable('post')) {
+        const sql = '''
+          SELECT
+            u.username,
+            u.display_name,
+            COUNT(p.id) as post_count,
+            MAX(p.published_at) as latest_post
+          FROM user u
+          LEFT JOIN post p ON u.id = p.author_id
+          GROUP BY u.id, u.username, u.display_name
+          HAVING post_count > 0
+          ORDER BY post_count DESC
+        ''';
+
+        final result = await widget.dao.customSelect(sql);
+
+        _addResult(DemoResult(
+          title: 'JOIN操作: ユーザー別投稿統計',
+          description: 'ユーザーと投稿テーブルをJOINして統計を取得',
+          sql: sql,
+          result: _formatJoinResult(result),
+          isSuccess: true,
+        ));
+      }
+      // 在庫管理スキーマの場合
+      else if (widget.schema.hasTable('product') && widget.schema.hasTable('stock')) {
+        const sql = '''
+          SELECT
+            p.name as product_name,
+            w.name as warehouse_name,
+            s.current_qty,
+            s.allocated_qty,
+            (s.current_qty - s.allocated_qty) as available_qty
+          FROM product p
+          JOIN stock s ON p.id = s.product_id
+          JOIN warehouse w ON s.warehouse_id = w.id
+          WHERE s.current_qty > 0
+          ORDER BY available_qty DESC
+        ''';
+
+        final result = await widget.dao.customSelect(sql);
+
+        _addResult(DemoResult(
+          title: 'JOIN操作: 商品在庫状況',
+          description: '商品、在庫、倉庫テーブルをJOINして在庫状況を取得',
+          sql: sql,
+          result: _formatJoinResult(result),
+          isSuccess: true,
+        ));
+      }
+    } catch (e) {
+      _addResult(DemoResult(
+        title: 'JOIN操作',
+        description: 'JOIN操作でエラーが発生しました',
+        sql: 'N/A',
+        result: 'エラー: $e',
+        isSuccess: false,
+      ));
+    } finally {
+      setState(() => _isRunning = false);
+    }
+  }
+
+  /// トランザクションのデモ
+  Future<void> _runTransactionDemo() async {
+    setState(() => _isRunning = true);
+
+    try {
+      final result = await widget.dao.transaction(() async {
+        final operations = <String>[];
+
+        // 顧客スキーマの場合
+        if (widget.schema.hasTable('customer')) {
+          // 新規顧客を追加
+          final customerId = await widget.dao.into('customer').insert({
+            'name': 'トランザクションテスト顧客',
+            'email': 'transaction@test.com',
+          });
+          operations.add('顧客追加: ID=$customerId');
+
+          // 注文テーブルがある場合は注文も追加
+          if (widget.schema.hasTable('order')) {
+            final orderId = await widget.dao.into('order').insert({
+              'customer_id': customerId,
+              'order_datetime': DateTime.now().millisecondsSinceEpoch ~/ 1000,
+              'total_amount': 5000,
+              'status': 'pending',
+            });
+            operations.add('注文追加: ID=$orderId');
+          }
+        }
+        // ブログスキーマの場合
+        else if (widget.schema.hasTable('user')) {
+          // 新規ユーザーを追加
+          final userId = await widget.dao.into('user').insert({
+            'username': 'tx_test_user',
+            'display_name': 'トランザクションテストユーザー',
+            'email': 'txtest@example.com',
+            'password': 'password123',
+            'status': 'active',
+          });
+          operations.add('ユーザー追加: ID=$userId');
+
+          // 投稿も追加
+          if (widget.schema.hasTable('post')) {
+            final postId = await widget.dao.into('post').insert({
+              'author_id': userId,
+              'title': 'トランザクションテスト投稿',
+              'content': 'これはトランザクションのテスト投稿です。',
+              'status': 'published',
+              'published_at': DateTime.now().millisecondsSinceEpoch ~/ 1000,
+            });
+            operations.add('投稿追加: ID=$postId');
+          }
+        }
+
+        return operations;
+      });
+
+      _addResult(DemoResult(
+        title: 'トランザクション操作',
+        description: '複数のテーブルへの挿入をトランザクション内で実行',
+        sql: 'BEGIN; [複数のINSERT文]; COMMIT;',
+        result: '成功した操作:\n${result.join('\n')}',
+        isSuccess: true,
+      ));
+    } catch (e) {
+      _addResult(DemoResult(
+        title: 'トランザクション操作',
+        description: 'トランザクション実行でエラーが発生（ロールバック済み）',
+        sql: 'BEGIN; [複数のINSERT文]; ROLLBACK;',
+        result: 'エラー: $e',
+        isSuccess: false,
+      ));
+    } finally {
+      setState(() => _isRunning = false);
+    }
+  }
+
+  /// 型安全性のデモ
+  Future<void> _runTypeSafetyDemo() async {
+    setState(() => _isRunning = true);
+
+    try {
+      final testResults = <String>[];
+
+      // 最初のテーブルで型安全性をテスト
+      final firstTable = widget.schema.tables.first;
+      final builder = widget.dao.select(firstTable.sqlName);
+
+      // 型安全なWHERE句のテスト
+      for (final column in firstTable.allColumns) {
+        try {
+          switch (column.type) {
+            case DMDataType.integer:
+              builder.whereColumn(column.sqlName, 1);
+              testResults.add('✅ ${column.sqlName} (integer): 型チェック成功');
+              break;
+            case DMDataType.text:
+              builder.whereColumn(column.sqlName, 'test');
+              testResults.add('✅ ${column.sqlName} (text): 型チェック成功');
+              break;
+            case DMDataType.boolean:
+              builder.whereColumn(column.sqlName, true);
+              testResults.add('✅ ${column.sqlName} (boolean): 型チェック成功');
+              break;
+            case DMDataType.datetime:
+              builder.whereColumn(column.sqlName, DateTime.now());
+              testResults.add('✅ ${column.sqlName} (datetime): 型チェック成功');
+              break;
+            case DMDataType.real:
+              builder.whereColumn(column.sqlName, 1.5);
+              testResults.add('✅ ${column.sqlName} (real): 型チェック成功');
+              break;
+          }
+        } catch (e) {
+          testResults.add('❌ ${column.sqlName}: エラー - $e');
+        }
+      }
+
+      // 型エラーのテスト
+      try {
+        final intColumn = firstTable.allColumns.firstWhere(
+          (col) => col.type == DMDataType.integer,
+          orElse: () => firstTable.allColumns.first,
+        );
+        builder.whereColumn(intColumn.sqlName, 'invalid_type');
+        testResults.add('❌ 型エラーテスト: 例外が発生すべきでしたが成功してしまいました');
+      } catch (e) {
+        testResults.add('✅ 型エラーテスト: 正しく例外が発生しました - ${e.toString().substring(0, 50)}...');
+      }
+
+      _addResult(DemoResult(
+        title: '型安全性テスト',
+        description: 'DynamicDAOの実行時型チェック機能をテスト',
+        sql: 'SELECT * FROM ${firstTable.sqlName} WHERE [various type conditions]',
+        result: testResults.join('\n'),
+        isSuccess: true,
+      ));
+    } catch (e) {
+      _addResult(DemoResult(
+        title: '型安全性テスト',
+        description: '型安全性テストでエラーが発生しました',
+        sql: 'N/A',
+        result: 'エラー: $e',
+        isSuccess: false,
+      ));
+    } finally {
+      setState(() => _isRunning = false);
+    }
+  }
+
+  String _formatJoinResult(List<Map<String, dynamic>> result) {
+    if (result.isEmpty) return '結果なし';
+
+    final buffer = StringBuffer();
+    for (int i = 0; i < result.length; i++) {
+      final row = result[i];
+      buffer.writeln('行 ${i + 1}:');
+      for (final entry in row.entries) {
+        buffer.writeln('  ${entry.key}: ${entry.value}');
+      }
+    }
+    return buffer.toString();
+  }
+
+  void _addResult(DemoResult result) {
+    setState(() {
+      _results.add(result);
+    });
+  }
+
+  void _clearResults() {
+    setState(() {
+      _results.clear();
+    });
+  }
+}
+
+/// デモ結果を保持するクラス
+class DemoResult {
+  final String title;
+  final String description;
+  final String sql;
+  final String result;
+  final bool isSuccess;
+
+  const DemoResult({
+    required this.title,
+    required this.description,
+    required this.sql,
+    required this.result,
+    required this.isSuccess,
+  });
 }
