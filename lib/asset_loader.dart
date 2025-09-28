@@ -2,18 +2,20 @@
 library;
 
 import 'package:flutter/services.dart';
+import 'package:flutter/foundation.dart' show kDebugMode;
+import 'main.dart' show kVerboseLogging;
 import 'analysis/dm_notation_analyzer.dart';
 import 'analysis/results/dm_database.dart';
 
 /// DMNotationアセットローダー
 class DMNotationAssetLoader {
   static const Map<String, String> _assetFiles = {
-    'シンプルテスト': 'assets/simple_test.dmnotation',
-    'ECサイト': 'assets/ecommerce.dmnotation',
-    '在庫管理': 'assets/inventory.dmnotation',
-    '社員管理': 'assets/employee.dmnotation',
-    '備品予約': 'assets/equipment_reservation.dmnotation',
-    'ブログ': 'assets/blog.dmnotation',
+    'シンプルテスト': 'assets/simple_test.dm',
+    'ECサイト': 'assets/ecommerce.dm',
+    '在庫管理': 'assets/inventory.dm',
+    '社員管理': 'assets/employee.dm',
+    '備品予約': 'assets/equipment_reservation.dm',
+    'ブログ': 'assets/blog.dm',
   };
 
   /// 利用可能なスキーマ一覧を取得
@@ -23,26 +25,77 @@ class DMNotationAssetLoader {
 
   /// 指定したスキーマのDMNotationテキストを読み込み
   static Future<String> loadSchemaText(String schemaName) async {
+    if (kDebugMode) {
+      print('=== AssetLoader: スキーマ読み込み開始 ===');
+      print('スキーマ名: $schemaName');
+    }
+
     final assetPath = _assetFiles[schemaName];
     if (assetPath == null) {
+      if (kDebugMode) {
+        print('エラー: スキーマ "$schemaName" が見つかりません');
+        print('利用可能なスキーマ: ${_assetFiles.keys.join(', ')}');
+      }
       throw ArgumentError('Schema "$schemaName" not found');
     }
 
+    if (kDebugMode) {
+      print('アセットパス: $assetPath');
+    }
+
     try {
-      return await rootBundle.loadString(assetPath);
+      final content = await rootBundle.loadString(assetPath);
+      if (kDebugMode) {
+        print('読み込み成功: ${content.length}文字');
+        print('最初の200文字: ${content.length > 200 ? content.substring(0, 200) + '...' : content}');
+      }
+      return content;
     } catch (e) {
+      if (kDebugMode) {
+        print('読み込み失敗: $e');
+      }
       throw Exception('Failed to load schema "$schemaName": $e');
     }
   }
 
   /// 指定したスキーマをパースしてDMDatabaseを取得
   static Future<DMDatabase> loadAndParseSchema(String schemaName) async {
+    if (kDebugMode && kVerboseLogging) {
+      print('=== AssetLoader: スキーマ解析開始 ===');
+    }
+
     final dmNotationText = await loadSchemaText(schemaName);
+
+    if (kDebugMode && kVerboseLogging) {
+      print('DMNotationAnalyzer.analyze() 呼び出し中...');
+    }
+
     final analysisResult = DMNotationAnalyzer.analyze(dmNotationText, databaseName: schemaName);
+
+    if (kDebugMode && kVerboseLogging) {
+      print('解析結果: ${analysisResult.isSuccess ? '成功' : '失敗'}');
+      if (analysisResult.isSuccess) {
+        print('データベース名: ${analysisResult.database?.name}');
+        print('テーブル数: ${analysisResult.database?.tables.length}');
+        print('サンプルデータ数: ${analysisResult.database?.sampleData.length}');
+      } else {
+        print('エラー数: ${analysisResult.errors.length}');
+        for (final error in analysisResult.errors) {
+          print('  - $error');
+        }
+      }
+    }
 
     if (!analysisResult.isSuccess) {
       final errorMessages = analysisResult.errors.map((e) => e.toString()).join('\\n');
+      if (kDebugMode) {
+        print('解析失敗のため例外をスロー');
+      }
       throw Exception('Failed to analyze schema "$schemaName":\\n$errorMessages');
+    }
+
+    if (kDebugMode && kVerboseLogging) {
+      print('=== AssetLoader: スキーマ解析完了 ===');
     }
 
     return analysisResult.database!;

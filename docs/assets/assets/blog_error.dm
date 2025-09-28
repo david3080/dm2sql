@@ -1,13 +1,13 @@
 ユーザー{user}: [ユーザーID{id:int}], ユーザー名{username:string@}, 表示名{display_name:string!}, メール{email:string@}, パスワード{password:string!}, プロフィール画像{profile_image:string}, 自己紹介{bio:string}, ウェブサイト{website:string}, 登録日時{created_at:datetime!}, 最終ログイン{last_login:datetime}, ステータス{status:string!}
 -- 投稿{post}: [投稿ID{id:int}], (著者ID{author_id:int}), タイトル{title:string!}, スラッグ{slug:string@}, 内容{content:string!}, 抜粋{excerpt:string}, アイキャッチ画像{featured_image:string}, 公開ステータス{status:string!}, 投稿日時{published_at:datetime}, 作成日時{created_at:datetime!}, 更新日時{updated_at:datetime!}, 閲覧数{view_count:int}, いいね数{like_count:int}
-  -- コメント{comment}: [コメントID{id:int}], (投稿ID{post_id:int}), (コメント者ID{commenter_id:int}), 内容{content:string!}, 承認ステータス{status:string!}, 投稿日時{created_at:datetime!}, 更新日時{updated_at:datetime}, 親コメントID{parent_id:int}
+  -- コメント{comment} [コメントID{id:int}], (投稿ID{post_id:int}), (コメント者ID{commenter_id:int}), 内容{content:string!}, 承認ステータス{status:string!}, 投稿日時{created_at:datetime!}, 更新日時{updated_at:datetime}, 親コメントID{parent_id:int}
     -> ユーザー{user}
   -- いいね{like}: [いいねID{id:int}], (投稿ID{post_id:int}), (ユーザーID{user_id:int}), いいね日時{created_at:datetime!}
     -> ユーザー{user}
 -- フォロー{follow}: [フォローID{id:int}], (フォロワーID{follower_id:int}), (フォロー先ID{following_id:int}), フォロー日時{created_at:datetime!}
   -> ユーザー{user}
 
-カテゴリ{category}: [カテゴリID{id:int}], カテゴリ名{name:string!}, スラッグ{slug:string@}, 説明{description:string}, 親カテゴリID{parent_id:int}, 表示順{sort_order:int}, 投稿数{post_count:int}
+カテゴリ{category}: [カテゴリID{id:int}, カテゴリ名{name:string!}, スラッグ{slug:string@}, 説明{description:string}, 親カテゴリID{parent_id:int}, 表示順{sort_order:int}, 投稿数{post_count:int}
 -> 投稿{post}
 
 タグ{tag}: [タグID{id:int}], タグ名{name:string!}, スラッグ{slug:string@}, 説明{description:string}, 使用回数{usage_count:int}

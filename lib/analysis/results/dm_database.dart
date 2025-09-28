@@ -3,6 +3,7 @@ library;
 
 import 'dm_table.dart';
 import 'dm_constraint.dart';
+import 'dm_sample_data.dart';
 
 /// DMNotationから解析されたデータベース全体の定義
 /// drift_devのDriftDatabaseクラスを参考に設計
@@ -25,6 +26,9 @@ class DMDatabase {
   /// データベースのコメント・説明
   final String? comment;
 
+  /// サンプルデータ一覧
+  final List<DMSampleData> sampleData;
+
   const DMDatabase({
     required this.name,
     required this.version,
@@ -32,6 +36,7 @@ class DMDatabase {
     this.relationships = const [],
     this.indexes = const [],
     this.comment,
+    this.sampleData = const [],
   });
 
   /// 指定した名前のテーブルを検索

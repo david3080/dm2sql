@@ -1,10 +1,14 @@
 /// drift_devのAnalyzerを参考にしたDMNotation解析器
 library;
 
+import 'package:flutter/foundation.dart' show kDebugMode;
+import '../main.dart' show kVerboseLogging;
 import 'results/dm_database.dart';
 import 'results/dm_table.dart';
 import 'results/dm_column.dart';
 import 'results/dm_constraint.dart';
+import 'results/dm_sample_data.dart';
+import 'dm_sample_data_parser.dart';
 
 /// DMNotation記法の解析エラー
 class DMAnalysisError {
@@ -72,9 +76,33 @@ class DMNotationAnalyzer {
     int version = 1,
   }) {
     try {
+      if (kDebugMode && kVerboseLogging) {
+        print('=== DMNotationAnalyzer: 解析開始 ===');
+        print('データベース名: $databaseName');
+        print('バージョン: $version');
+        print('テキスト長: ${dmNotationText.length}文字');
+        print('行数: ${dmNotationText.split('\n').length}行');
+      }
+
       final analyzer = DMNotationAnalyzer._();
-      return analyzer._analyzeInternal(dmNotationText, databaseName, version);
+      final result = analyzer._analyzeInternal(dmNotationText, databaseName, version);
+
+      if (kDebugMode && kVerboseLogging) {
+        if (result.isSuccess) {
+          print('=== DMNotationAnalyzer: 解析成功 ===');
+        } else {
+          print('=== DMNotationAnalyzer: 解析失敗 ===');
+          print('エラー数: ${result.errors.length}');
+        }
+      }
+
+      return result;
     } catch (e) {
+      if (kDebugMode) {
+        print('=== DMNotationAnalyzer: 例外発生 ===');
+        print('例外: $e');
+        print('スタックトレース: ${StackTrace.current}');
+      }
       return DMAnalysisResult.failure([
         DMAnalysisError(
           line: 0,
@@ -158,6 +186,31 @@ class DMNotationAnalyzer {
     final validationErrors = _validateForeignKeys(tables);
     errors.addAll(validationErrors);
 
+    // Phase 7: サンプルデータ解析
+    final sampleDataResult = DMSampleDataParser.parseSampleData(text);
+    final sampleData = sampleDataResult.sampleData;
+    if (!sampleDataResult.isSuccess) {
+      // サンプルデータのエラーを警告として扱い、処理は続行
+      for (final error in sampleDataResult.errors) {
+        errors.add(DMAnalysisError(
+          line: 0,
+          column: 0,
+          message: 'サンプルデータエラー: $error',
+          type: DMErrorType.syntaxError,
+        ));
+      }
+    }
+
+    // Phase 8: サンプルデータの整合性チェック（警告レベル）
+    final sampleDataValidationResult = _validateSampleData(sampleData, tables);
+    // サンプルデータのエラーは警告として扱い、処理は続行
+    if (kDebugMode && kVerboseLogging && sampleDataValidationResult.errors.isNotEmpty) {
+      print('サンプルデータ検証警告:');
+      for (final error in sampleDataValidationResult.errors) {
+        print('  WARNING: ${error.message}');
+      }
+    }
+
     if (errors.isNotEmpty) {
       return DMAnalysisResult.failure(errors);
     }
@@ -167,6 +220,7 @@ class DMNotationAnalyzer {
       version: version,
       tables: tables,
       relationships: relationships,
+      sampleData: sampleData,
     );
 
     return DMAnalysisResult.success(database);
@@ -203,6 +257,7 @@ class DMNotationAnalyzer {
     final errors = <DMAnalysisError>[];
     final columns = <DMColumn>[];
     final foreignKeys = <DMForeignKey>[];
+    final allColumnsInOrder = <DMColumn>[]; // 定義順ですべてのカラムを保存
     DMPrimaryKey? primaryKey;
 
     final columnTexts = columnsText.split(',').map((c) => c.trim()).toList();
@@ -278,12 +333,22 @@ class DMNotationAnalyzer {
           }
         }
 
-        foreignKeys.add(DMForeignKey(
+        final foreignKey = DMForeignKey(
           columnName: columnName,
           displayName: displayName.isNotEmpty ? displayName : columnName,
           sqlType: (DMDataType.fromDMNotation(type) ?? DMDataType.integer).sqlType,
           referencedTable: referencedTable,
           referencedColumn: 'id',
+          type: DMDataType.fromDMNotation(type) ?? DMDataType.integer,
+          constraints: constraints,
+        );
+
+        foreignKeys.add(foreignKey);
+
+        // 外部キーを通常カラムとしても定義順に追加
+        allColumnsInOrder.add(DMColumn(
+          displayName: displayName.isNotEmpty ? displayName : columnName,
+          sqlName: columnName,
           type: DMDataType.fromDMNotation(type) ?? DMDataType.integer,
           constraints: constraints,
         ));
@@ -299,12 +364,15 @@ class DMNotationAnalyzer {
         final type = _extractType(typeAndConstraints);
         final constraints = _parseConstraints(typeAndConstraints);
 
-        columns.add(DMColumn(
+        final column = DMColumn(
           displayName: displayName ?? columnName,
           sqlName: columnName,
           type: DMDataType.fromDMNotation(type) ?? DMDataType.text,
           constraints: constraints,
-        ));
+        );
+
+        columns.add(column);
+        allColumnsInOrder.add(column); // 定義順に追加
       }
     }
 
@@ -321,6 +389,7 @@ class DMNotationAnalyzer {
       columns: columns,
       primaryKey: primaryKey,
       foreignKeys: foreignKeys,
+      allColumnsInOrder: allColumnsInOrder, // 定義順序を渡す
     );
 
     return _TableParseResult.success(table);
@@ -736,6 +805,77 @@ class DMNotationAnalyzer {
 
     return errors;
   }
+
+  /// サンプルデータの整合性チェック
+  _SampleDataValidationResult _validateSampleData(List<DMSampleData> sampleData, List<DMTable> tables) {
+    final errors = <DMAnalysisError>[];
+    final tableMap = {for (var t in tables) t.sqlName: t};
+
+    for (final sample in sampleData) {
+      // テーブルの存在確認
+      final table = tableMap[sample.tableName];
+      if (table == null) {
+        errors.add(DMAnalysisError(
+          line: sample.lineNumber,
+          column: 0,
+          message: 'テーブル "${sample.tableName}" が見つかりません',
+          type: DMErrorType.referenceError,
+        ));
+        continue;
+      }
+
+      // カラム数の確認（警告のみ）
+      if (sample.values.length != table.allColumns.length && kDebugMode && kVerboseLogging) {
+        print('WARNING: テーブル ${table.sqlName}: カラム数が一致しません。期待値: ${table.allColumns.length}, 実際: ${sample.values.length}');
+        print('  allColumnsカラム名: ${table.allColumns.map((c) => c.sqlName).join(', ')}');
+        print('  サンプル値: ${sample.values}');
+      }
+
+      // 各カラムのデータ型チェック
+      for (int i = 0; i < table.allColumns.length && i < sample.values.length; i++) {
+        final column = table.allColumns[i];
+        final value = sample.values[i];
+
+        // NULL値のチェック（NOT NULL制約）
+        if (value == null && column.isRequired) {
+          errors.add(DMAnalysisError(
+            line: sample.lineNumber,
+            column: 0,
+            message: 'カラム "${column.displayName}" は必須ですが、NULL値が指定されています',
+            type: DMErrorType.typeError,
+          ));
+          continue;
+        }
+
+        // データ型の基本チェック（警告のみ）
+        if (value != null && !_isValidDataType(value, column.type) && kDebugMode && kVerboseLogging) {
+          print('WARNING: カラム "${column.displayName}" のデータ型が不正です。期待値: ${column.type.name}, 実際: ${value.runtimeType}');
+        }
+      }
+    }
+
+    if (errors.isNotEmpty) {
+      return _SampleDataValidationResult.failure(errors);
+    }
+
+    return _SampleDataValidationResult.success();
+  }
+
+  /// データ型の基本チェック
+  bool _isValidDataType(dynamic value, DMDataType type) {
+    switch (type) {
+      case DMDataType.integer:
+        return value is int;
+      case DMDataType.text:
+        return value is String;
+      case DMDataType.real:
+        return value is double || value is int;
+      case DMDataType.datetime:
+        return value is int; // Unix timestamp
+      case DMDataType.boolean:
+        return value is bool || value is int;
+    }
+  }
 }
 
 /// テーブル解析結果
@@ -932,5 +1072,20 @@ class _ForeignKeyResolutionResult {
 
   factory _ForeignKeyResolutionResult.failure(List<DMAnalysisError> errors) {
     return _ForeignKeyResolutionResult._(errors);
+  }
+}
+
+/// サンプルデータの整合性チェック結果
+class _SampleDataValidationResult {
+  final List<DMAnalysisError> errors;
+
+  const _SampleDataValidationResult._(this.errors);
+
+  factory _SampleDataValidationResult.success() {
+    return _SampleDataValidationResult._([]);
+  }
+
+  factory _SampleDataValidationResult.failure(List<DMAnalysisError> errors) {
+    return _SampleDataValidationResult._(errors);
   }
 }

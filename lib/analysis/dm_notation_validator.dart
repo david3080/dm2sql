@@ -234,7 +234,12 @@ class DMNotationValidator {
     }
 
     return issues.isEmpty
-        ? DMValidationResult.valid()
+        ? DMValidationResult(
+            isValid: true,
+            issues: issues,
+            warnings: warnings,
+            severity: warnings.isEmpty ? ValidationSeverity.none : ValidationSeverity.warning,
+          )
         : DMValidationResult.invalid(issues, warnings);
   }
 
@@ -262,7 +267,12 @@ class DMNotationValidator {
     }
 
     return issues.isEmpty
-        ? DMValidationResult.valid()
+        ? DMValidationResult(
+            isValid: true,
+            issues: issues,
+            warnings: warnings,
+            severity: warnings.isEmpty ? ValidationSeverity.none : ValidationSeverity.warning,
+          )
         : DMValidationResult.invalid(issues, warnings);
   }
 
@@ -288,17 +298,24 @@ class DMNotationValidator {
       }
 
       // コロンの存在チェック（テーブル定義）
-      if (trimmed.contains('}') && !trimmed.contains(':')) {
-        final afterBrace = trimmed.substring(trimmed.lastIndexOf('}') + 1);
-        if (afterBrace.trim().isNotEmpty && !afterBrace.trim().startsWith(':')) {
-          issues.add(DMValidationIssue(
-            line: lineNumber,
-            column: trimmed.lastIndexOf('}') + 1,
-            message: 'テーブル定義の後にコロン(:)が必要です',
-            severity: ValidationSeverity.error,
-            category: ValidationCategory.syntax,
-            suggestion: 'テーブル名{english_name}: の形式で記述してください',
-          ));
+      // テーブル定義行かどうかを判定（行の先頭に関係記号がない）
+      if (!trimmed.startsWith('--') && !trimmed.startsWith('->') && !trimmed.startsWith('<-') && !trimmed.startsWith('??')) {
+        // 最初のテーブル名定義の部分を抽出
+        final firstTableMatch = RegExp(r'^([^{]+\{[^}]+\})').firstMatch(trimmed);
+        if (firstTableMatch != null) {
+          final afterTableDef = trimmed.substring(firstTableMatch.end).trim();
+
+          // テーブル定義の後にコンテンツがあるがコロンで始まっていない場合
+          if (afterTableDef.isNotEmpty && !afterTableDef.startsWith(':')) {
+            issues.add(DMValidationIssue(
+              line: lineNumber,
+              column: firstTableMatch.end,
+              message: 'テーブル定義の後にコロン(:)が必要です',
+              severity: ValidationSeverity.error,
+              category: ValidationCategory.syntax,
+              suggestion: 'テーブル名{english_name}: の形式で記述してください',
+            ));
+          }
         }
       }
     }
@@ -470,7 +487,12 @@ class DMNotationValidator {
     _validateRelationships(database, issues, warnings);
 
     return issues.isEmpty
-        ? DMValidationResult.valid()
+        ? DMValidationResult(
+            isValid: true,
+            issues: issues,
+            warnings: warnings,
+            severity: warnings.isEmpty ? ValidationSeverity.none : ValidationSeverity.warning,
+          )
         : DMValidationResult.invalid(issues, warnings);
   }
 
@@ -518,20 +540,7 @@ class DMNotationValidator {
       columnNames.add(column.sqlName);
     }
 
-    // 厳密レベルでの追加チェック
-    if (level == ValidationLevel.strict) {
-      // created_atの推奨
-      final hasCreatedAt = table.allColumns.any((c) => c.sqlName == 'created_at');
-
-      if (!hasCreatedAt && table.sqlName != 'simple_test') {
-        warnings.add(DMValidationWarning(
-          line: 0,
-          message: 'テーブル "${table.sqlName}" にcreated_atカラムの追加を推奨します',
-          category: 'best_practice',
-          suggestion: 'レコード作成日時の追跡のため',
-        ));
-      }
-    }
+    // 厳密レベルでの追加チェック（ベストプラクティスチェック内で実行されるため削除）
   }
 
   /// 関係性バリデーション
@@ -607,15 +616,25 @@ class DMNotationValidator {
     }
 
     return warnings.isEmpty
-        ? DMValidationResult.valid()
-        : DMValidationResult.invalid([], warnings);
+        ? DMValidationResult(
+            isValid: true,
+            issues: [],
+            warnings: [],
+            severity: ValidationSeverity.none,
+          )
+        : DMValidationResult(
+            isValid: true,
+            issues: [],
+            warnings: warnings,
+            severity: ValidationSeverity.warning,
+          );
   }
 
   /// ベストプラクティスバリデーション
   DMValidationResult _validateBestPractices(DMDatabase database, String dmNotation) {
     final warnings = <DMValidationWarning>[];
 
-    // データベース全体のベストプラクティス
+    // 1. 大量テーブル警告（50+テーブル）
     if (database.tables.length > 50) {
       warnings.add(DMValidationWarning(
         line: 0,
@@ -625,21 +644,264 @@ class DMNotationValidator {
       ));
     }
 
-    // コメントの推奨
+    // 2. コメント推奨（3+テーブルの場合）
     final lines = dmNotation.split('\n');
     final commentLines = lines.where((line) => line.trim().startsWith('//')).length;
-    if (commentLines < database.tables.length / 2) {
+    if (database.tables.length >= 3 && commentLines == 0) {
       warnings.add(DMValidationWarning(
         line: 0,
-        message: 'コメントが不足しています',
+        message: 'テーブル数が多い場合はコメントの追加を推奨します',
         category: 'best_practice',
-        suggestion: '各テーブルの用途を説明するコメントを追加してください',
+        suggestion: '各テーブルの用途を説明する//コメントを追加してください',
       ));
     }
 
+    // 3. created_at/updated_at推奨チェック
+    _validateTimestampColumns(database, warnings);
+
+    // 4. 命名規則統一チェック
+    _validateNamingConsistency(database, warnings);
+
+    // 5. 単一責任原則チェック
+    _validateSingleResponsibility(database, warnings);
+
+    // 6. データ正規化チェック
+    _validateNormalization(database, warnings);
+
     return warnings.isEmpty
-        ? DMValidationResult.valid()
-        : DMValidationResult.invalid([], warnings);
+        ? DMValidationResult(
+            isValid: true,
+            issues: [],
+            warnings: [],
+            severity: ValidationSeverity.none,
+          )
+        : DMValidationResult(
+            isValid: true,
+            issues: [],
+            warnings: warnings,
+            severity: ValidationSeverity.warning,
+          );
+  }
+
+  /// タイムスタンプカラムの推奨チェック
+  void _validateTimestampColumns(DMDatabase database, List<DMValidationWarning> warnings) {
+    for (final table in database.tables) {
+      // created_atとupdated_atの存在チェック
+      final hasCreatedAt = table.allColumns.any((c) =>
+        c.sqlName.toLowerCase().contains('created_at') ||
+        c.sqlName.toLowerCase().contains('created_time'));
+
+      final hasUpdatedAt = table.allColumns.any((c) =>
+        c.sqlName.toLowerCase().contains('updated_at') ||
+        c.sqlName.toLowerCase().contains('updated_time') ||
+        c.sqlName.toLowerCase().contains('modified_at'));
+
+      // 業務テーブル（simple_testやsampleを除外）の場合のみチェック
+      if (!_isSystemOrTestTable(table.sqlName)) {
+        if (!hasCreatedAt) {
+          warnings.add(DMValidationWarning(
+            line: 0,
+            message: 'テーブル "${table.sqlName}" にcreated_at（作成日時）カラムの追加を推奨します',
+            category: 'best_practice',
+            suggestion: 'データ追跡とデバッグのため、作成日時{created_at:datetime!}を追加してください',
+          ));
+        }
+
+        if (!hasUpdatedAt) {
+          warnings.add(DMValidationWarning(
+            line: 0,
+            message: 'テーブル "${table.sqlName}" にupdated_at（更新日時）カラムの追加を推奨します',
+            category: 'best_practice',
+            suggestion: 'データ追跡とデバッグのため、更新日時{updated_at:datetime}を追加してください',
+          ));
+        }
+      }
+    }
+  }
+
+  /// 命名規則統一チェック
+  void _validateNamingConsistency(DMDatabase database, List<DMValidationWarning> warnings) {
+    // 主キー命名の一貫性チェック
+    final pkNamingPatterns = <String, int>{};
+
+    for (final table in database.tables) {
+      final pkName = table.primaryKey.columnName;
+      if (pkName.isNotEmpty) {
+        // パターンを抽出（id, table_id, tableID等）
+        String pattern;
+        if (pkName == 'id') {
+          pattern = 'id';
+        } else if (pkName.endsWith('_id')) {
+          pattern = 'table_id';
+        } else if (pkName.endsWith('ID')) {
+          pattern = 'tableID';
+        } else {
+          pattern = 'other';
+        }
+
+        pkNamingPatterns[pattern] = (pkNamingPatterns[pattern] ?? 0) + 1;
+      }
+    }
+
+    // 複数の主キー命名パターンが混在している場合
+    if (pkNamingPatterns.length > 1) {
+      final mostCommon = pkNamingPatterns.entries
+          .reduce((a, b) => a.value > b.value ? a : b)
+          .key;
+
+      warnings.add(DMValidationWarning(
+        line: 0,
+        message: '主キーの命名規則が統一されていません',
+        category: 'best_practice',
+        suggestion: '最も多用されている "$mostCommon" パターンに統一することを推奨します',
+      ));
+    }
+
+    // 外部キー命名の一貫性チェック
+    final fkNamingPatterns = <String, int>{};
+
+    for (final table in database.tables) {
+      for (final fk in table.foreignKeys) {
+        String pattern;
+        if (fk.columnName.endsWith('_id')) {
+          pattern = 'table_id';
+        } else if (fk.columnName.endsWith('ID')) {
+          pattern = 'tableID';
+        } else {
+          pattern = 'other';
+        }
+
+        fkNamingPatterns[pattern] = (fkNamingPatterns[pattern] ?? 0) + 1;
+      }
+    }
+
+    if (fkNamingPatterns.length > 1) {
+      final mostCommon = fkNamingPatterns.entries
+          .reduce((a, b) => a.value > b.value ? a : b)
+          .key;
+
+      warnings.add(DMValidationWarning(
+        line: 0,
+        message: '外部キーの命名規則が統一されていません',
+        category: 'best_practice',
+        suggestion: '最も多用されている "$mostCommon" パターンに統一することを推奨します',
+      ));
+    }
+  }
+
+  /// 単一責任原則チェック
+  void _validateSingleResponsibility(DMDatabase database, List<DMValidationWarning> warnings) {
+    for (final table in database.tables) {
+      // 主キーも含めた総カラム数による責任過多チェック
+      final totalColumns = table.allColumns.length + (table.primaryKey.columnName.isNotEmpty ? 1 : 0);
+      if (totalColumns > 15 && !_isSystemOrTestTable(table.sqlName)) {
+        warnings.add(DMValidationWarning(
+          line: 0,
+          message: 'テーブル "${table.sqlName}" の責任が多すぎる可能性があります（${totalColumns}カラム）',
+          category: 'best_practice',
+          suggestion: 'テーブルを機能別に分割することを検討してください',
+        ));
+      }
+
+      // 異なるドメインのカラムが混在している場合のチェック
+      _checkDomainMixing(table, warnings);
+    }
+  }
+
+  /// データ正規化チェック
+  void _validateNormalization(DMDatabase database, List<DMValidationWarning> warnings) {
+    for (final table in database.tables) {
+      // 繰り返しグループの検出
+      _checkRepeatingGroups(table, warnings);
+
+      // 部分関数従属の検出
+      _checkPartialDependencies(table, warnings);
+    }
+  }
+
+  /// ドメイン混在チェック
+  void _checkDomainMixing(DMTable table, List<DMValidationWarning> warnings) {
+    final columnNames = table.allColumns.map((c) => c.sqlName.toLowerCase()).toList();
+
+    // ユーザー関連とオーダー関連が同じテーブルにある例
+    final hasUserDomain = columnNames.any((name) =>
+      name.contains('user') || name.contains('customer') || name.contains('member'));
+    final hasOrderDomain = columnNames.any((name) =>
+      name.contains('order') || name.contains('purchase') || name.contains('payment'));
+    final hasProductDomain = columnNames.any((name) =>
+      name.contains('product') || name.contains('item') || name.contains('goods'));
+
+    int domainCount = 0;
+    if (hasUserDomain) domainCount++;
+    if (hasOrderDomain) domainCount++;
+    if (hasProductDomain) domainCount++;
+
+    if (domainCount > 1 && !_isSystemOrTestTable(table.sqlName)) {
+      warnings.add(DMValidationWarning(
+        line: 0,
+        message: 'テーブル "${table.sqlName}" で異なるドメインのデータが混在している可能性があります',
+        category: 'best_practice',
+        suggestion: 'ドメイン別にテーブルを分離することを検討してください',
+      ));
+    }
+  }
+
+  /// 繰り返しグループチェック
+  void _checkRepeatingGroups(DMTable table, List<DMValidationWarning> warnings) {
+    final columnNames = table.allColumns.map((c) => c.sqlName.toLowerCase()).toList();
+
+    // 番号付きカラムの検出（例: phone1, phone2, phone3）
+    final patterns = <String, List<String>>{};
+
+    for (final name in columnNames) {
+      final match = RegExp(r'^(.+?)(\d+)$').firstMatch(name);
+      if (match != null) {
+        final base = match.group(1)!;
+        patterns[base] ??= [];
+        patterns[base]!.add(name);
+      }
+    }
+
+    for (final entry in patterns.entries) {
+      if (entry.value.length > 1) {
+        warnings.add(DMValidationWarning(
+          line: 0,
+          message: 'テーブル "${table.sqlName}" で繰り返しグループが検出されました: ${entry.value.join(", ")}',
+          category: 'best_practice',
+          suggestion: '正規化のため別テーブルに分割することを推奨します',
+        ));
+      }
+    }
+  }
+
+  /// 部分関数従属チェック
+  void _checkPartialDependencies(DMTable table, List<DMValidationWarning> warnings) {
+    // 複合主キーの場合のみチェック
+    if (table.primaryKey.columnName.contains(',') || table.primaryKey.columnName.contains('_')) {
+      // 非キーカラムが主キーの一部にのみ依存している可能性をチェック
+      final nonKeyColumns = table.allColumns.where((c) =>
+        c.sqlName != table.primaryKey.columnName &&
+        !table.foreignKeys.any((fk) => fk.columnName == c.sqlName)).toList();
+
+      if (nonKeyColumns.length > 5 && !_isSystemOrTestTable(table.sqlName)) {
+        warnings.add(DMValidationWarning(
+          line: 0,
+          message: 'テーブル "${table.sqlName}" で部分関数従属の可能性があります',
+          category: 'best_practice',
+          suggestion: '第2正規形への正規化を検討してください',
+        ));
+      }
+    }
+  }
+
+  /// システムテーブルやテストテーブルかどうかの判定
+  bool _isSystemOrTestTable(String tableName) {
+    final lowerName = tableName.toLowerCase();
+    return lowerName.contains('test') ||
+           lowerName.contains('sample') ||
+           lowerName.contains('simple') ||
+           lowerName.contains('demo') ||
+           lowerName.contains('temp');
   }
 
   /// エラータイプをバリデーション重要度にマッピング

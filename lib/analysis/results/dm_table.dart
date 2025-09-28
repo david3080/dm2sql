@@ -1,6 +1,7 @@
 /// drift_devのDriftTableを参考にした動的テーブル定義
 library;
 
+import 'package:flutter/foundation.dart' show kDebugMode;
 import 'dm_column.dart';
 import 'dm_constraint.dart';
 
@@ -28,6 +29,9 @@ class DMTable {
   /// テーブルのコメント・説明
   final String? comment;
 
+  /// 定義順序で並んだ全カラム（外部キーカラムを含む）
+  final List<DMColumn>? _allColumnsInOrder;
+
   const DMTable({
     required this.displayName,
     required this.sqlName,
@@ -36,7 +40,8 @@ class DMTable {
     this.foreignKeys = const [],
     this.constraints = const [],
     this.comment,
-  });
+    List<DMColumn>? allColumnsInOrder,
+  }) : _allColumnsInOrder = allColumnsInOrder;
 
   /// 指定した名前のカラムを検索
   DMColumn? findColumn(String columnName) {
@@ -47,11 +52,49 @@ class DMTable {
     }
   }
 
-  /// 外部キーカラムを含む全カラム
+  /// 外部キーカラムを含む全カラム（PRIMARY KEYを含む、定義順）
   List<DMColumn> get allColumns {
-    final result = List<DMColumn>.from(columns);
+    // 定義順序が利用可能な場合はそれを使用
+    if (_allColumnsInOrder != null) {
+      final result = <DMColumn>[];
 
-    // 外部キーカラムを追加（重複チェック）
+      // 1. PRIMARY KEYカラムを最初に追加
+      result.add(DMColumn(
+        displayName: primaryKey.columnName, // PRIMARY KEYには日本語名がないのでSQL名を使用
+        sqlName: primaryKey.columnName,
+        type: DMDataType.integer, // PRIMARY KEYは通常INTEGER型
+        constraints: [DMColumnConstraint.notNull], // PRIMARY KEYは常にNOT NULL
+      ));
+
+      // 2. 定義順のカラムを追加（PRIMARY KEYと重複しないようにチェック）
+      for (final col in _allColumnsInOrder) {
+        if (col.sqlName != primaryKey.columnName) {
+          result.add(col);
+        }
+      }
+
+      return result;
+    }
+
+    // フォールバック：従来の方式
+    final result = <DMColumn>[];
+
+    // 1. PRIMARY KEYカラムを最初に追加
+    result.add(DMColumn(
+      displayName: primaryKey.columnName, // PRIMARY KEYには日本語名がないのでSQL名を使用
+      sqlName: primaryKey.columnName,
+      type: DMDataType.integer, // PRIMARY KEYは通常INTEGER型
+      constraints: [DMColumnConstraint.notNull], // PRIMARY KEYは常にNOT NULL
+    ));
+
+    // 2. 通常カラムを追加（PRIMARY KEYと重複しないようにチェック）
+    for (final col in columns) {
+      if (col.sqlName != primaryKey.columnName) {
+        result.add(col);
+      }
+    }
+
+    // 3. 外部キーカラムを追加（重複チェック）
     for (final fk in foreignKeys) {
       if (!result.any((col) => col.sqlName == fk.columnName)) {
         result.add(DMColumn(
@@ -115,9 +158,13 @@ class DMTable {
 )''';
 
     // デバッグ用：カラム定義をログ出力
-    print('Table $sqlName column definitions:');
-    for (int i = 0; i < columnDefs.length; i++) {
-      print('  [$i]: ${columnDefs[i]}');
+    if (kDebugMode) {
+      print('Table $sqlName column definitions:');
+      for (int i = 0; i < columnDefs.length; i++) {
+        print('  [$i]: ${columnDefs[i]}');
+      }
+      print('Full CREATE TABLE SQL:');
+      print(sql);
     }
 
     return sql;

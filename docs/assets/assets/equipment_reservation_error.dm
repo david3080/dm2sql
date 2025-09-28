@@ -6,7 +6,7 @@
 -- 保守{maintenance}: [保守ID{id:int}], (備品ID{equipment_id:int}), 保守種別{maintenance_type:string!}, 実施日{maintenance_date:datetime!}, 実施者{maintainer:string}, 内容{description:string!}, 費用{cost:int}, 次回保守予定日{next_maintenance_date:datetime}, ステータス{status:string!}
 
 カテゴリ{category}: [カテゴリID{id:int}], カテゴリ名{name:string!}, 説明{description:string}, 親カテゴリID{parent_id:int}
--> 備品{equipment}
+=> 備品{equipment}
 
 場所{location}: [場所ID{id:int}], 場所名{name:string!}, 建物{building:string}, フロア{floor:string}, 詳細位置{detail_location:string}, 収容人数{capacity:int}, 設備{facilities:string}
 -> 備品{equipment}
@@ -15,7 +15,7 @@
 -> 利用者{user}
 
 予約競合{reservation_conflict}: [競合ID{id:int}], (元予約ID{original_reservation_id:int}), (競合予約ID{conflicting_reservation_id:int}), 競合検出日時{detected_at:datetime!}, 解決ステータス{resolution_status:string!}, 解決方法{resolution_method:string}, 解決日時{resolved_at:datetime}
--> 予約{reservation}
+<- 予約{reservation}
 
 利用ルール{usage_rule}: [ルールID{id:int}], (カテゴリID{category_id:int}), ルール名{name:string!}, ルール内容{content:string!}, 最大予約時間{max_reservation_hours:int}, 事前予約期間{advance_booking_days:int}, キャンセル期限{cancellation_deadline_hours:int}, 作成日時{created_at:datetime!}
 -> カテゴリ{category}

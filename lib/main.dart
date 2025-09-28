@@ -1,40 +1,118 @@
-import 'dart:math';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show kDebugMode;
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
+import 'package:toggle_switch/toggle_switch.dart';
 import 'database.dart';
 import 'asset_loader.dart';
-import 'runtime/dynamic_dao.dart';
 import 'analysis/results/dm_database.dart';
-import 'analysis/results/dm_table.dart';
-import 'analysis/results/dm_column.dart';
+import 'analysis/dm_notation_validator.dart';
+import 'providers/app_state_provider.dart';
+import 'router/app_router.dart';
+import 'widgets/realtime_editor_view.dart';
+
+// アプリ全体のログレベル制御
+const bool kVerboseLogging = false; // falseで最小ログモード
 
 void main() {
-  runApp(const DMNotationApp());
+  runApp(const ProviderScope(child: DMNotationApp()));
 }
 
-class DMNotationApp extends StatelessWidget {
+class DMNotationApp extends ConsumerWidget {
   const DMNotationApp({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'DM2SQL - 動的スキーマ生成デモ',
+  Widget build(BuildContext context, WidgetRef ref) {
+    final router = ref.watch(appRouterProvider);
+
+    return MaterialApp.router(
+      title: 'DM2SQL - 動的DAO生成デモ',
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
         useMaterial3: true,
       ),
-      home: const SchemaSelectionPage(),
+      routerConfig: router,
+      debugShowCheckedModeBanner: false,
     );
   }
 }
 
-class SchemaSelectionPage extends StatefulWidget {
-  const SchemaSelectionPage({super.key});
+/// ホーム画面（メイン画面）
+class HomePage extends ConsumerWidget {
+  const HomePage({super.key});
 
   @override
-  State<SchemaSelectionPage> createState() => _SchemaSelectionPageState();
+  Widget build(BuildContext context, WidgetRef ref) {
+    final viewMode = ref.watch(viewModeProvider);
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              'DM2SQL - 動的DAO生成デモ',
+              style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+            ),
+            Text(
+              '独自のデータモデル表記からDAOとデータベース定義を自動生成・自動初期化します。',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.normal),
+            ),
+          ],
+        ),
+        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
+        centerTitle: true,
+        toolbarHeight: 80,
+        actions: [
+          // 表示モード切り替えトグル
+          Padding(
+            padding: const EdgeInsets.only(right: 16, top: 8, bottom: 8),
+            child: Center(
+              child: ToggleSwitch(
+                minWidth: 100.0,
+                minHeight: 40.0,
+                cornerRadius: 8.0,
+                activeBgColors: [
+                  [Theme.of(context).colorScheme.primary],
+                  [Theme.of(context).colorScheme.secondary],
+                ],
+                activeFgColor: Colors.white,
+                inactiveBgColor: Colors.grey[300],
+                inactiveFgColor: Colors.grey[700],
+                initialLabelIndex: ViewMode.values.indexOf(viewMode),
+                totalSwitches: ViewMode.values.length,
+                labels: const ['サンプル\nモデル', 'リアルタイム\nエディタ'],
+                fontSize: 12.0,
+                radiusStyle: false,
+                multiLineText: true,
+                centerText: true,
+                onToggle: (index) {
+                  if (index != null) {
+                    ref.read(viewModeProvider.notifier).state =
+                        ViewMode.values[index];
+                  }
+                },
+              ),
+            ),
+          ),
+        ],
+      ),
+      body: viewMode == ViewMode.sampleModels
+          ? const SampleModelsView()
+          : const RealtimeEditorView(),
+    );
+  }
 }
 
-class _SchemaSelectionPageState extends State<SchemaSelectionPage> {
+/// サンプルモデル表示ビュー
+class SampleModelsView extends ConsumerStatefulWidget {
+  const SampleModelsView({super.key});
+
+  @override
+  ConsumerState<SampleModelsView> createState() => _SampleModelsViewState();
+}
+
+class _SampleModelsViewState extends ConsumerState<SampleModelsView> {
   Map<String, SchemaInfo> schemaInfos = {};
   bool isLoading = true;
   String? error;
@@ -47,13 +125,7 @@ class _SchemaSelectionPageState extends State<SchemaSelectionPage> {
 
   Future<void> _loadSchemaInfos() async {
     try {
-      setState(() {
-        isLoading = true;
-        error = null;
-      });
-
       final infos = await DMNotationAssetLoader.getSchemaInfos();
-
       setState(() {
         schemaInfos = infos;
         isLoading = false;
@@ -68,143 +140,146 @@ class _SchemaSelectionPageState extends State<SchemaSelectionPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('DM2SQL - スキーマ選択'),
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-      ),
-      body: isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : error != null
-              ? Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Icon(Icons.error, size: 64, color: Colors.red),
-                      const SizedBox(height: 16),
-                      Text(
-                        error!,
-                        style: const TextStyle(fontSize: 16, color: Colors.red),
-                        textAlign: TextAlign.center,
-                      ),
-                      const SizedBox(height: 16),
-                      ElevatedButton(
-                        onPressed: _loadSchemaInfos,
-                        child: const Text('再試行'),
-                      ),
-                    ],
-                  ),
-                )
-              : Padding(
-                  padding: const EdgeInsets.all(16.0),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'テスト用データモデルを選択してください',
-                        style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-                      ),
-                      const SizedBox(height: 8),
-                      const Text(
-                        'DMNotation記法からSQLiteテーブルを動的生成し、サンプルデータを挿入します。',
-                        style: TextStyle(fontSize: 14, color: Colors.grey),
-                      ),
-                      const SizedBox(height: 24),
-                      Expanded(
-                        child: ListView.builder(
-                          itemCount: schemaInfos.length,
-                          itemBuilder: (context, index) {
-                            final entry = schemaInfos.entries.elementAt(index);
-                            final schemaName = entry.key;
-                            final info = entry.value;
+    if (isLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
 
-                            return Card(
-                              margin: const EdgeInsets.only(bottom: 12),
-                              child: ListTile(
-                                leading: CircleAvatar(
-                                  backgroundColor: _getSchemaColor(schemaName),
-                                  child: Icon(
-                                    _getSchemaIcon(schemaName),
-                                    color: Colors.white,
-                                  ),
-                                ),
-                                title: Text(
-                                  schemaName,
-                                  style: const TextStyle(
-                                    fontSize: 18,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                                subtitle: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    const SizedBox(height: 4),
-                                    Text(info.description),
-                                    const SizedBox(height: 8),
-                                    Row(
-                                      children: [
-                                        Icon(Icons.table_chart, size: 16, color: Colors.grey[600]),
-                                        const SizedBox(width: 4),
-                                        Text('${info.tableCount}テーブル'),
-                                        const SizedBox(width: 16),
-                                        Icon(Icons.link, size: 16, color: Colors.grey[600]),
-                                        const SizedBox(width: 4),
-                                        Text('${info.relationshipCount}関係'),
-                                      ],
-                                    ),
-                                  ],
-                                ),
-                                trailing: const Icon(Icons.arrow_forward_ios),
-                                isThreeLine: true,
-                                onTap: () => _navigateToDataViewer(schemaName),
-                              ),
-                            );
-                          },
-                        ),
+    if (error != null) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.error, size: 64, color: Colors.red),
+            const SizedBox(height: 16),
+            Text(
+              error!,
+              style: const TextStyle(fontSize: 16, color: Colors.red),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 16),
+            ElevatedButton(
+              onPressed: _loadSchemaInfos,
+              child: const Text('再試行'),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Padding(
+      padding: const EdgeInsets.all(16.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'サンプルデータモデルを選択してください',
+            style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'DMNotation記法からSQLiteテーブルを動的生成し、サンプルデータを挿入します。',
+            style: TextStyle(fontSize: 14, color: Colors.grey),
+          ),
+          const SizedBox(height: 24),
+          Expanded(
+            child: ListView.builder(
+              itemCount: schemaInfos.length,
+              itemBuilder: (context, index) {
+                final entry = schemaInfos.entries.elementAt(index);
+                final schemaName = entry.key;
+                final info = entry.value;
+
+                return Card(
+                  margin: const EdgeInsets.only(bottom: 12),
+                  child: ListTile(
+                    leading: CircleAvatar(
+                      backgroundColor: _getSchemaColor(schemaName),
+                      child: Icon(
+                        _getSchemaIcon(schemaName),
+                        color: Colors.white,
                       ),
-                    ],
+                    ),
+                    title: Text(
+                      schemaName,
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    subtitle: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const SizedBox(height: 4),
+                        Text(info.description),
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            Icon(
+                              Icons.table_chart,
+                              size: 16,
+                              color: Colors.grey[600],
+                            ),
+                            const SizedBox(width: 4),
+                            Text('${info.tableCount}テーブル'),
+                            const SizedBox(width: 16),
+                            Icon(Icons.link, size: 16, color: Colors.grey[600]),
+                            const SizedBox(width: 4),
+                            Text('${info.relationshipCount}関係'),
+                          ],
+                        ),
+                      ],
+                    ),
+                    trailing: const Icon(Icons.arrow_forward_ios),
+                    isThreeLine: true,
+                    onTap: () {
+                      if (kDebugMode) {
+                        print('=== スキーマカードがクリックされました ===');
+                        print('スキーマ名: $schemaName');
+                        print('遷移先: /viewer/$schemaName');
+                      }
+                      context.go('/viewer/$schemaName');
+                    },
                   ),
-                ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _loadSchemaInfos,
-        tooltip: 'スキーマ情報を再読み込み',
-        child: const Icon(Icons.refresh),
+                );
+              },
+            ),
+          ),
+        ],
       ),
     );
   }
 
   Color _getSchemaColor(String schemaName) {
-    const colors = {
-      'ECサイト': Colors.orange,
-      '在庫管理': Colors.green,
-      '社員管理': Colors.blue,
-      '備品予約': Colors.purple,
-      'ブログ': Colors.teal,
-    };
-    return colors[schemaName] ?? Colors.grey;
+    final colors = [
+      Colors.blue,
+      Colors.green,
+      Colors.orange,
+      Colors.purple,
+      Colors.teal,
+      Colors.indigo,
+    ];
+    return colors[schemaName.hashCode % colors.length];
   }
 
   IconData _getSchemaIcon(String schemaName) {
-    const icons = {
-      'ECサイト': Icons.shopping_cart,
-      '在庫管理': Icons.inventory_2,
-      '社員管理': Icons.people,
-      '備品予約': Icons.event_available,
-      'ブログ': Icons.article,
-    };
-    return icons[schemaName] ?? Icons.schema;
-  }
-
-  void _navigateToDataViewer(String schemaName) {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => DataViewerPage(schemaName: schemaName),
-      ),
-    );
+    switch (schemaName) {
+      case 'ECサイト':
+        return Icons.shopping_cart;
+      case '在庫管理':
+        return Icons.inventory;
+      case '社員管理':
+        return Icons.people;
+      case '備品予約':
+        return Icons.event_available;
+      case 'ブログ':
+        return Icons.article;
+      default:
+        return Icons.table_chart;
+    }
   }
 }
 
+/// データビューアー画面
 class DataViewerPage extends StatefulWidget {
   final String schemaName;
 
@@ -215,225 +290,159 @@ class DataViewerPage extends StatefulWidget {
 }
 
 class _DataViewerPageState extends State<DataViewerPage> {
-  late MinimalDatabase database;
-  late DynamicDAO dao;
-  Map<String, List<Map<String, dynamic>>> tablesData = {};
+  MinimalDatabase? database;
+  DMDatabase? schema;
   bool isLoading = true;
   String? error;
-  DMDatabase? schema;
+  List<String> tableNames = [];
+  String? selectedTable;
+  List<Map<String, dynamic>> tableData = [];
+  int? _hoveredIndex;
+  DMValidationResult? validationResult;
+  String? dmNotationContent;
 
   @override
   void initState() {
     super.initState();
-    _initializeAndLoadData();
+    if (kDebugMode) {
+      print('=== DataViewerPage初期化開始 ===');
+      print('スキーマ名: ${widget.schemaName}');
+    }
+    _loadAndInitializeDatabase();
   }
 
-  Future<void> _initializeAndLoadData() async {
+  Future<void> _loadAndInitializeDatabase() async {
     try {
       setState(() {
         isLoading = true;
         error = null;
       });
 
-      // データベース初期化
+      // DMNotationファイルを読み込み
+      if (widget.schemaName == 'リアルタイムエディター') {
+        // リアルタイムエディターからの場合、現在のテキストを使用
+        // この実装では、暫定的にシンプルテストスキーマを使用
+        dmNotationContent = await DMNotationAssetLoader.loadSchemaText(
+          'シンプルテスト',
+        );
+      } else {
+        dmNotationContent = await DMNotationAssetLoader.loadSchemaText(
+          widget.schemaName,
+        );
+      }
+
+      // バリデーション実行
+      validationResult = DMNotationValidator.validate(
+        dmNotationContent!,
+        level: ValidationLevel.strict,
+        includeBestPracticeChecks: true,
+      );
+
+      // データベーススキーマを解析・生成
+      schema = await DMNotationAssetLoader.loadAndParseSchema(
+        widget.schemaName == 'リアルタイムエディター' ? 'シンプルテスト' : widget.schemaName,
+      );
+
+      // データベースを初期化
       database = MinimalDatabase();
 
-      // スキーマ読み込み・パース
-      schema = await DMNotationAssetLoader.loadAndParseSchema(widget.schemaName);
+      // テーブル名一覧を取得
+      tableNames = schema!.tables.map((table) => table.sqlName).toList();
 
-      // DAO初期化
-      dao = DynamicDAO(database, schema!);
+      // テーブル作成とサンプルデータ挿入を実行
+      await database!.setupFromDMDatabase(schema!);
 
-      // 既存テーブルをクリア
-      await dao.tables.dropAllTables();
-
-      // テーブル作成
-      await dao.tables.createTables();
-
-      // サンプルデータ挿入
-      await _insertSampleData();
-
-      // データ読み込み
-      await _loadTablesData();
-
-    } catch (e) {
-      print('データベースの初期化エラー: $e');
       setState(() {
-        error = 'データベースの初期化に失敗しました: $e';
+        isLoading = false;
+      });
+
+      // 最初のテーブルを自動選択
+      if (tableNames.isNotEmpty) {
+        _selectTable(tableNames.first);
+      }
+    } catch (e) {
+      setState(() {
+        error = 'データベース初期化に失敗しました: $e';
         isLoading = false;
       });
     }
   }
 
-  Future<void> _loadTablesData() async {
+  Future<void> _selectTable(String tableName) async {
     try {
-      final data = <String, List<Map<String, dynamic>>>{};
-
-      // 各テーブルのデータを読み込み
-      for (final table in schema!.tables) {
-        final tableData = await dao.select(table.sqlName).get();
-        data[table.sqlName] = tableData;
-      }
-
+      // SQLiteの予約語対策としてテーブル名をバッククォートで囲む
+      final data = await database!.rawQuery('SELECT * FROM `$tableName`');
       setState(() {
-        tablesData = data;
-        isLoading = false;
+        selectedTable = tableName;
+        tableData = data;
       });
     } catch (e) {
       setState(() {
-        error = 'データの読み込みに失敗しました: $e';
-        isLoading = false;
+        error = 'テーブルデータの読み込みに失敗しました: $e';
       });
     }
   }
 
-  /// サンプルデータ挿入
-  Future<void> _insertSampleData() async {
-    for (final table in schema!.tablesInDependencyOrder) {
-      final sampleCount = _getSampleCount(table.sqlName);
-
-      for (int i = 1; i <= sampleCount; i++) {
-        final data = _generateSampleRecord(table, i);
-        await dao.into(table.sqlName).insert(data);
-      }
-    }
+  Color _getValidationColor() {
+    if (validationResult == null) return Colors.grey;
+    return validationResult!.isValid ? Colors.green : Colors.red;
   }
 
-  /// テーブルごとのサンプルデータ件数を決定
-  int _getSampleCount(String tableName) {
-    const counts = {
-      'customer': 5, 'user': 5, 'employee': 8,
-      'product': 10, 'equipment': 6,
-      'category': 4, 'department': 3, 'position': 4,
-      'order': 8, 'post': 12, 'reservation': 6,
-      'comment': 15, 'review': 8,
-    };
-
-    for (final key in counts.keys) {
-      if (tableName.contains(key)) {
-        return counts[key]!;
-      }
-    }
-
-    return 3; // デフォルト
+  IconData _getValidationIcon() {
+    if (validationResult == null) return Icons.help;
+    return validationResult!.isValid ? Icons.check_circle : Icons.error;
   }
 
-  /// サンプルレコード生成
-  Map<String, dynamic> _generateSampleRecord(DMTable table, int index) {
-    final record = <String, dynamic>{};
-    final random = Random();
-
-    // 通常カラムの値を生成
-    for (final column in table.allColumns) {
-      // 主キーはスキップ（AUTOINCREMENT）
-      if (column.sqlName == table.primaryKey.columnName) continue;
-
-      // 外部キーの処理
-      bool isForeignKey = false;
-      for (final fk in table.foreignKeys) {
-        if (column.sqlName == fk.columnName) {
-          // 簡易的な外部キー値生成（1-3の範囲）
-          record[column.sqlName] = random.nextInt(3) + 1;
-          isForeignKey = true;
-          break;
-        }
-      }
-
-      if (!isForeignKey) {
-        record[column.sqlName] = _generateSampleValue(column, table.sqlName, index, random);
-      }
-    }
-
-    return record;
+  String _getValidationTooltip() {
+    if (validationResult == null) return 'バリデーション未実行';
+    return validationResult!.isValid ? 'バリデーション成功' : 'バリデーション失敗';
   }
 
-  /// カラムのサンプル値生成
-  dynamic _generateSampleValue(DMColumn column, String tableName, int index, Random random) {
-    final columnName = column.sqlName;
+  void _showValidationDialog() {
+    if (validationResult == null || dmNotationContent == null) return;
 
-    // 特定のカラム名に基づく値生成
-    if (columnName.contains('name')) {
-      return _generateName(tableName, index);
-    } else if (columnName.contains('email')) {
-      return 'user$index@example.com';
-    } else if (columnName.contains('phone')) {
-      return '090-${random.nextInt(9000) + 1000}-${random.nextInt(9000) + 1000}';
-    } else if (columnName.contains('address')) {
-      return '東京都渋谷区$index-$index-$index';
-    } else if (columnName.contains('title')) {
-      return 'サンプルタイトル $index';
-    } else if (columnName.contains('content') || columnName.contains('description')) {
-      return 'これはサンプルの内容です。テスト用のデータとして作成されました。($index)';
-    } else if (columnName.contains('password')) {
-      return 'password$index';
-    } else if (columnName.contains('status')) {
-      return ['active', 'inactive', 'pending'].elementAt(random.nextInt(3));
-    }
-
-    // データ型に基づく値生成
-    switch (column.type) {
-      case DMDataType.integer:
-        if (columnName.contains('price') || columnName.contains('amount') || columnName.contains('cost')) {
-          return random.nextInt(50000) + 1000;
-        } else if (columnName.contains('count') || columnName.contains('quantity')) {
-          return random.nextInt(100) + 1;
-        } else {
-          return random.nextInt(1000) + 1;
-        }
-
-      case DMDataType.text:
-        return 'sample_${columnName}_$index';
-
-      case DMDataType.real:
-        return (random.nextDouble() * 1000).roundToDouble();
-
-      case DMDataType.datetime:
-        final now = DateTime.now();
-        final offset = random.nextInt(365 * 24 * 60 * 60); // 1年以内
-        return now.subtract(Duration(seconds: offset)).millisecondsSinceEpoch ~/ 1000;
-
-      case DMDataType.boolean:
-        return random.nextBool() ? 1 : 0;
-    }
-  }
-
-  /// 名前の生成
-  String _generateName(String tableName, int index) {
-    if (tableName.contains('customer') || tableName.contains('user')) {
-      const names = ['田中太郎', '佐藤花子', '鈴木次郎', '高橋美咲', '伊藤健太'];
-      return names[index % names.length];
-    } else if (tableName.contains('product')) {
-      const products = ['高性能ノートPC', 'ワイヤレスマウス', 'メカニカルキーボード', '4Kモニター', 'Webカメラ'];
-      return products[index % products.length];
-    } else if (tableName.contains('category')) {
-      const categories = ['電子機器', '事務用品', '家具', '消耗品'];
-      return categories[index % categories.length];
-    } else {
-      return '${tableName}_アイテム_$index';
-    }
-  }
-
-  @override
-  void dispose() {
-    database.close();
-    super.dispose();
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(validationResult!.isValid ? 'バリデーション成功' : 'バリデーション結果'),
+        content: SizedBox(
+          width: double.maxFinite,
+          height: 400,
+          child: ValidationResultView(
+            validationResult: validationResult!,
+            dmNotationContent: dmNotationContent!,
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('閉じる'),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text('${widget.schemaName} - データビューア'),
+        title: Text('${widget.schemaName} - データビューアー'),
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () => context.go('/'),
+          tooltip: 'ホームに戻る',
+        ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.analytics),
-            onPressed: _showAdvancedDemoDialog,
-            tooltip: '高度な機能デモ',
+            icon: Icon(_getValidationIcon(), color: _getValidationColor()),
+            onPressed: _showValidationDialog,
+            tooltip: _getValidationTooltip(),
           ),
           IconButton(
             icon: const Icon(Icons.refresh),
-            onPressed: _loadTablesData,
+            onPressed: _loadAndInitializeDatabase,
             tooltip: 'データを再読み込み',
           ),
         ],
@@ -441,620 +450,500 @@ class _DataViewerPageState extends State<DataViewerPage> {
       body: isLoading
           ? const Center(child: CircularProgressIndicator())
           : error != null
-              ? Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Icon(Icons.error, size: 64, color: Colors.red),
-                      const SizedBox(height: 16),
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 32),
-                        child: Text(
-                          error!,
-                          style: const TextStyle(fontSize: 16, color: Colors.red),
-                          textAlign: TextAlign.center,
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      ElevatedButton(
-                        onPressed: _initializeAndLoadData,
-                        child: const Text('再試行'),
-                      ),
-                    ],
+          ? Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(Icons.error, size: 64, color: Colors.red),
+                  const SizedBox(height: 16),
+                  Text(
+                    error!,
+                    style: const TextStyle(fontSize: 16, color: Colors.red),
+                    textAlign: TextAlign.center,
                   ),
-                )
-              : tablesData.isEmpty
-                  ? const Center(child: Text('テーブルデータがありません'))
-                  : DefaultTabController(
-                      length: tablesData.length,
-                      child: Column(
-                        children: [
-                          TabBar(
-                            isScrollable: true,
-                            tabs: tablesData.keys
-                                .map((tableName) => Tab(text: tableName))
-                                .toList(),
-                          ),
-                          Expanded(
-                            child: TabBarView(
-                              children: tablesData.entries
-                                  .map((entry) => _buildTableView(entry.key, entry.value))
-                                  .toList(),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-    );
-  }
-
-  Widget _buildTableView(String tableName, List<Map<String, dynamic>> data) {
-    if (data.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.table_chart, size: 64, color: Colors.grey[400]),
-            const SizedBox(height: 16),
-            Text(
-              '$tableName テーブルにデータがありません',
-              style: TextStyle(fontSize: 16, color: Colors.grey[600]),
-            ),
-          ],
-        ),
-      );
-    }
-
-    return ListView.builder(
-      padding: const EdgeInsets.all(8),
-      itemCount: data.length,
-      itemBuilder: (context, index) {
-        final record = data[index];
-        return Card(
-          margin: const EdgeInsets.only(bottom: 8),
-          child: ExpansionTile(
-            title: Text(
-              '$tableName #${record['id'] ?? index + 1}',
-              style: const TextStyle(fontWeight: FontWeight.bold),
-            ),
-            subtitle: Text(
-              _getRecordSummary(record),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-            children: [
-              Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  children: record.entries.map((entry) {
-                    return Padding(
-                      padding: const EdgeInsets.only(bottom: 8),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          SizedBox(
-                            width: 120,
-                            child: Text(
-                              entry.key,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.bold,
-                                color: Colors.grey,
-                              ),
-                            ),
-                          ),
-                          Expanded(
-                            child: Text(
-                              _formatValue(entry.value),
-                              style: const TextStyle(fontSize: 14),
-                            ),
-                          ),
-                        ],
-                      ),
-                    );
-                  }).toList(),
-                ),
+                  const SizedBox(height: 16),
+                  ElevatedButton(
+                    onPressed: _loadAndInitializeDatabase,
+                    child: const Text('再試行'),
+                  ),
+                ],
               ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-  String _getRecordSummary(Map<String, dynamic> record) {
-    // nameカラムがあればそれを使用
-    if (record.containsKey('name')) {
-      return record['name']?.toString() ?? '';
-    }
-
-    // titleカラムがあればそれを使用
-    if (record.containsKey('title')) {
-      return record['title']?.toString() ?? '';
-    }
-
-    // 最初のstring型のカラムを使用
-    for (final entry in record.entries) {
-      if (entry.key != 'id' && entry.value is String && entry.value.toString().isNotEmpty) {
-        return entry.value.toString();
-      }
-    }
-
-    return 'ID: ${record['id'] ?? '不明'}';
-  }
-
-  String _formatValue(dynamic value) {
-    if (value == null) return 'NULL';
-    if (value is String && value.isEmpty) return '(空文字)';
-    return value.toString();
-  }
-
-  /// 高度な機能のデモダイアログ
-  void _showAdvancedDemoDialog() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('高度な機能デモ'),
-        content: const Text('DynamicDAOの高度な機能をデモンストレーションします。'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('キャンセル'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              Navigator.pop(context);
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => AdvancedDemoPage(
-                    dao: dao,
-                    schema: schema!,
-                  ),
-                ),
-              );
-            },
-            child: const Text('デモを開始'),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// 高度な機能デモページ
-class AdvancedDemoPage extends StatefulWidget {
-  final DynamicDAO dao;
-  final DMDatabase schema;
-
-  const AdvancedDemoPage({
-    super.key,
-    required this.dao,
-    required this.schema,
-  });
-
-  @override
-  State<AdvancedDemoPage> createState() => _AdvancedDemoPageState();
-}
-
-class _AdvancedDemoPageState extends State<AdvancedDemoPage> {
-  final List<DemoResult> _results = [];
-  bool _isRunning = false;
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('高度な機能デモ'),
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-      ),
-      body: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+            )
+          : Row(
               children: [
-                const Text(
-                  'DynamicDAO 高度機能デモ',
-                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 8),
-                const Text(
-                  'JOIN操作、トランザクション、型安全操作などの高度な機能をデモンストレーションします。',
-                  style: TextStyle(fontSize: 14, color: Colors.grey),
-                ),
-                const SizedBox(height: 16),
-                Row(
-                  children: [
-                    ElevatedButton(
-                      onPressed: _isRunning ? null : _runJoinDemo,
-                      child: const Text('JOIN操作デモ'),
-                    ),
-                    const SizedBox(width: 12),
-                    ElevatedButton(
-                      onPressed: _isRunning ? null : _runTransactionDemo,
-                      child: const Text('トランザクションデモ'),
-                    ),
-                    const SizedBox(width: 12),
-                    ElevatedButton(
-                      onPressed: _isRunning ? null : _runTypeSafetyDemo,
-                      child: const Text('型安全性デモ'),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                ElevatedButton(
-                  onPressed: _results.isEmpty ? null : _clearResults,
-                  child: const Text('結果をクリア'),
-                ),
-              ],
-            ),
-          ),
-          const Divider(),
-          Expanded(
-            child: _results.isEmpty
-                ? const Center(
-                    child: Text(
-                      'デモボタンを押して機能をテストしてください',
-                      style: TextStyle(fontSize: 16, color: Colors.grey),
-                    ),
-                  )
-                : ListView.builder(
-                    padding: const EdgeInsets.all(16),
-                    itemCount: _results.length,
-                    itemBuilder: (context, index) {
-                      final result = _results[index];
-                      return Card(
-                        margin: const EdgeInsets.only(bottom: 12),
-                        child: ExpansionTile(
-                          title: Text(
-                            result.title,
-                            style: const TextStyle(fontWeight: FontWeight.bold),
+                // 左側：テーブル一覧
+                Container(
+                  width: 250,
+                  decoration: BoxDecoration(
+                    border: Border(right: BorderSide(color: Colors.grey[300]!)),
+                  ),
+                  child: Column(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: Theme.of(
+                            context,
+                          ).colorScheme.surfaceContainerHighest,
+                          border: Border(
+                            bottom: BorderSide(color: Colors.grey[300]!),
                           ),
-                          subtitle: Text(result.description),
-                          leading: Icon(
-                            result.isSuccess ? Icons.check_circle : Icons.error,
-                            color: result.isSuccess ? Colors.green : Colors.red,
-                          ),
+                        ),
+                        child: Row(
                           children: [
-                            Padding(
-                              padding: const EdgeInsets.all(16),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  const Text(
-                                    'SQL:',
-                                    style: TextStyle(fontWeight: FontWeight.bold),
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Container(
-                                    width: double.infinity,
-                                    padding: const EdgeInsets.all(8),
-                                    decoration: BoxDecoration(
-                                      color: Colors.grey[100],
-                                      borderRadius: BorderRadius.circular(4),
-                                    ),
-                                    child: Text(
-                                      result.sql,
-                                      style: const TextStyle(
-                                        fontFamily: 'monospace',
-                                        fontSize: 12,
-                                      ),
-                                    ),
-                                  ),
-                                  const SizedBox(height: 12),
-                                  const Text(
-                                    '結果:',
-                                    style: TextStyle(fontWeight: FontWeight.bold),
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Container(
-                                    width: double.infinity,
-                                    padding: const EdgeInsets.all(8),
-                                    decoration: BoxDecoration(
-                                      color: Colors.grey[50],
-                                      borderRadius: BorderRadius.circular(4),
-                                    ),
-                                    child: Text(
-                                      result.result,
-                                      style: const TextStyle(fontSize: 12),
-                                    ),
-                                  ),
-                                ],
+                            Icon(
+                              Icons.table_chart,
+                              color: Theme.of(context).colorScheme.primary,
+                            ),
+                            const SizedBox(width: 8),
+                            const Text(
+                              'テーブル一覧',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
                               ),
                             ),
                           ],
                         ),
-                      );
-                    },
+                      ),
+                      Expanded(
+                        child: ListView.builder(
+                          itemCount: tableNames.length,
+                          itemBuilder: (context, index) {
+                            final tableName = tableNames[index];
+                            final isSelected = tableName == selectedTable;
+
+                            return Container(
+                              color: isSelected
+                                  ? Theme.of(
+                                      context,
+                                    ).colorScheme.primaryContainer
+                                  : null,
+                              child: ListTile(
+                                dense: true,
+                                leading: Icon(
+                                  Icons.table_rows,
+                                  color: isSelected
+                                      ? Theme.of(
+                                          context,
+                                        ).colorScheme.onPrimaryContainer
+                                      : null,
+                                ),
+                                title: Text(
+                                  tableName,
+                                  style: TextStyle(
+                                    color: isSelected
+                                        ? Theme.of(
+                                            context,
+                                          ).colorScheme.onPrimaryContainer
+                                        : null,
+                                  ),
+                                ),
+                                onTap: () => _selectTable(tableName),
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                    ],
                   ),
+                ),
+
+                // 右側：テーブルデータ
+                Expanded(
+                  child: selectedTable == null
+                      ? const Center(
+                          child: Text(
+                            'テーブルを選択してください',
+                            style: TextStyle(fontSize: 18, color: Colors.grey),
+                          ),
+                        )
+                      : _buildTableView(),
+                ),
+              ],
+            ),
+    );
+  }
+
+  Widget _buildTableView() {
+    if (tableData.isEmpty) {
+      return const Center(
+        child: Text(
+          'データがありません',
+          style: TextStyle(fontSize: 18, color: Colors.grey),
+        ),
+      );
+    }
+
+    final columns = tableData.first.keys.toList();
+
+    return Column(
+      children: [
+        // ヘッダー
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Theme.of(context).colorScheme.surfaceContainerHighest,
+            border: Border(bottom: BorderSide(color: Colors.grey[300]!)),
           ),
-        ],
+          child: Row(
+            children: [
+              Icon(
+                Icons.table_rows,
+                color: Theme.of(context).colorScheme.primary,
+              ),
+              const SizedBox(width: 8),
+              Text(
+                '$selectedTable (${tableData.length}件)',
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const Spacer(),
+              ElevatedButton.icon(
+                onPressed: () {
+                  // 今後のCRUD機能実装予定地
+                },
+                icon: const Icon(Icons.add),
+                label: const Text('追加'),
+              ),
+            ],
+          ),
+        ),
+
+        // データテーブル
+        Expanded(
+          child: Align(
+            alignment: Alignment.topLeft,
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: SingleChildScrollView(
+                child: DataTable(
+                columns: columns
+                    .map(
+                      (column) => DataColumn(
+                        label: Text(
+                          column,
+                          style: const TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                    )
+                    .toList(),
+                rows: tableData.asMap().entries.map((entry) {
+                  final index = entry.key;
+                  final row = entry.value;
+
+                  return DataRow(
+                    color: WidgetStateProperty.resolveWith((states) {
+                      if (_hoveredIndex == index) {
+                        return Theme.of(
+                          context,
+                        ).colorScheme.primary.withValues(alpha: 0.1);
+                      }
+                      return null;
+                    }),
+                    cells: columns
+                        .map(
+                          (column) =>
+                              DataCell(Text(row[column]?.toString() ?? '')),
+                        )
+                        .toList(),
+                    onSelectChanged: (_) {
+                      setState(() {
+                        _hoveredIndex = _hoveredIndex == index ? null : index;
+                      });
+                    },
+                  );
+                }).toList(),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// バリデーション結果表示ウィジェット
+class ValidationResultView extends StatelessWidget {
+  final DMValidationResult validationResult;
+  final String dmNotationContent;
+
+  const ValidationResultView({
+    super.key,
+    required this.validationResult,
+    required this.dmNotationContent,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final lines = dmNotationContent.split('\n');
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // 概要
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: Theme.of(context).colorScheme.surface,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+              color: Theme.of(
+                context,
+              ).colorScheme.outline.withValues(alpha: 0.2),
+            ),
+          ),
+          child: Row(
+            children: [
+              Icon(
+                validationResult.isValid ? Icons.check_circle : Icons.error,
+                color: validationResult.isValid ? Colors.green : Colors.red,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      validationResult.isValid ? 'バリデーション成功' : 'バリデーション失敗',
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        color: validationResult.isValid
+                            ? Colors.green
+                            : Colors.red,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    Text(
+                      'エラー: ${validationResult.errors.length}件, 警告: ${validationResult.warnings.length}件',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+
+        // エラー・警告一覧
+        Expanded(
+          child: ListView(
+            children: [
+              if (validationResult.errors.isNotEmpty) ...[
+                Text(
+                  '🚫 エラー (${validationResult.errors.length}件)',
+                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                    color: Colors.red,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                ...validationResult.errors.map(
+                  (error) => _buildIssueCard(context, error, true, lines),
+                ),
+                const SizedBox(height: 16),
+              ],
+
+              if (validationResult.warnings.isNotEmpty) ...[
+                Text(
+                  '⚠️ 警告 (${validationResult.warnings.length}件)',
+                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                    color: Colors.orange,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                ...validationResult.warnings.map(
+                  (warning) => _buildWarningCard(context, warning, lines),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildIssueCard(
+    BuildContext context,
+    DMValidationIssue issue,
+    bool isError,
+    List<String> lines,
+  ) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      color: isError
+          ? Colors.red.withValues(alpha: 0.05)
+          : Colors.orange.withValues(alpha: 0.05),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(
+                  isError ? Icons.error : Icons.warning,
+                  size: 16,
+                  color: isError ? Colors.red : Colors.orange,
+                ),
+                const SizedBox(width: 4),
+                Text(
+                  '行 ${issue.line}${issue.column > 0 ? ':${issue.column}' : ''}',
+                  style: Theme.of(
+                    context,
+                  ).textTheme.labelSmall?.copyWith(fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    '[${issue.category.name}]',
+                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Text(issue.message, style: Theme.of(context).textTheme.bodyMedium),
+            if (issue.suggestion != null) ...[
+              const SizedBox(height: 4),
+              Text(
+                '💡 ${issue.suggestion}',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: Theme.of(context).colorScheme.primary,
+                  fontStyle: FontStyle.italic,
+                ),
+              ),
+            ],
+            if (issue.line > 0 && issue.line <= lines.length) ...[
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Theme.of(
+                    context,
+                  ).colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: Row(
+                  children: [
+                    SizedBox(
+                      width: 30,
+                      child: Text(
+                        '${issue.line}',
+                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ),
+                    Expanded(
+                      child: Text(
+                        lines[issue.line - 1],
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          fontFamily: 'monospace',
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ],
+        ),
       ),
     );
   }
 
-  /// JOIN操作のデモ
-  Future<void> _runJoinDemo() async {
-    setState(() => _isRunning = true);
-
-    try {
-      // 顧客と注文のJOIN（ECサイトスキーマの場合）
-      if (widget.schema.hasTable('customer') && widget.schema.hasTable('order')) {
-        const sql = '''
-          SELECT
-            c.name as customer_name,
-            COUNT(o.id) as order_count,
-            COALESCE(SUM(o.total_amount), 0) as total_spent
-          FROM customer c
-          LEFT JOIN `order` o ON c.id = o.customer_id
-          GROUP BY c.id, c.name
-          ORDER BY total_spent DESC
-        ''';
-
-        final result = await widget.dao.customSelect(sql);
-
-        _addResult(DemoResult(
-          title: 'JOIN操作: 顧客別注文統計',
-          description: '顧客と注文テーブルをJOINして統計を取得',
-          sql: sql,
-          result: _formatJoinResult(result),
-          isSuccess: true,
-        ));
-      }
-      // ブログスキーマの場合
-      else if (widget.schema.hasTable('user') && widget.schema.hasTable('post')) {
-        const sql = '''
-          SELECT
-            u.username,
-            u.display_name,
-            COUNT(p.id) as post_count,
-            MAX(p.published_at) as latest_post
-          FROM user u
-          LEFT JOIN post p ON u.id = p.author_id
-          GROUP BY u.id, u.username, u.display_name
-          HAVING post_count > 0
-          ORDER BY post_count DESC
-        ''';
-
-        final result = await widget.dao.customSelect(sql);
-
-        _addResult(DemoResult(
-          title: 'JOIN操作: ユーザー別投稿統計',
-          description: 'ユーザーと投稿テーブルをJOINして統計を取得',
-          sql: sql,
-          result: _formatJoinResult(result),
-          isSuccess: true,
-        ));
-      }
-      // 在庫管理スキーマの場合
-      else if (widget.schema.hasTable('product') && widget.schema.hasTable('stock')) {
-        const sql = '''
-          SELECT
-            p.name as product_name,
-            w.name as warehouse_name,
-            s.current_qty,
-            s.allocated_qty,
-            (s.current_qty - s.allocated_qty) as available_qty
-          FROM product p
-          JOIN stock s ON p.id = s.product_id
-          JOIN warehouse w ON s.warehouse_id = w.id
-          WHERE s.current_qty > 0
-          ORDER BY available_qty DESC
-        ''';
-
-        final result = await widget.dao.customSelect(sql);
-
-        _addResult(DemoResult(
-          title: 'JOIN操作: 商品在庫状況',
-          description: '商品、在庫、倉庫テーブルをJOINして在庫状況を取得',
-          sql: sql,
-          result: _formatJoinResult(result),
-          isSuccess: true,
-        ));
-      }
-    } catch (e) {
-      _addResult(DemoResult(
-        title: 'JOIN操作',
-        description: 'JOIN操作でエラーが発生しました',
-        sql: 'N/A',
-        result: 'エラー: $e',
-        isSuccess: false,
-      ));
-    } finally {
-      setState(() => _isRunning = false);
-    }
+  Widget _buildWarningCard(
+    BuildContext context,
+    DMValidationWarning warning,
+    List<String> lines,
+  ) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      color: Colors.orange.withValues(alpha: 0.05),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.warning, size: 16, color: Colors.orange),
+                const SizedBox(width: 4),
+                Text(
+                  '行 ${warning.line}',
+                  style: Theme.of(
+                    context,
+                  ).textTheme.labelSmall?.copyWith(fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    '[${warning.category}]',
+                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Text(
+              warning.message,
+              style: Theme.of(context).textTheme.bodyMedium,
+            ),
+            if (warning.suggestion != null) ...[
+              const SizedBox(height: 4),
+              Text(
+                '💡 ${warning.suggestion}',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: Theme.of(context).colorScheme.primary,
+                  fontStyle: FontStyle.italic,
+                ),
+              ),
+            ],
+            if (warning.line > 0 && warning.line <= lines.length) ...[
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Theme.of(
+                    context,
+                  ).colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: Row(
+                  children: [
+                    SizedBox(
+                      width: 30,
+                      child: Text(
+                        '${warning.line}',
+                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ),
+                    Expanded(
+                      child: Text(
+                        lines[warning.line - 1],
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          fontFamily: 'monospace',
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
   }
-
-  /// トランザクションのデモ
-  Future<void> _runTransactionDemo() async {
-    setState(() => _isRunning = true);
-
-    try {
-      final result = await widget.dao.transaction(() async {
-        final operations = <String>[];
-
-        // 顧客スキーマの場合
-        if (widget.schema.hasTable('customer')) {
-          // 新規顧客を追加
-          final customerId = await widget.dao.into('customer').insert({
-            'name': 'トランザクションテスト顧客',
-            'email': 'transaction@test.com',
-          });
-          operations.add('顧客追加: ID=$customerId');
-
-          // 注文テーブルがある場合は注文も追加
-          if (widget.schema.hasTable('order')) {
-            final orderId = await widget.dao.into('order').insert({
-              'customer_id': customerId,
-              'order_datetime': DateTime.now().millisecondsSinceEpoch ~/ 1000,
-              'total_amount': 5000,
-              'status': 'pending',
-            });
-            operations.add('注文追加: ID=$orderId');
-          }
-        }
-        // ブログスキーマの場合
-        else if (widget.schema.hasTable('user')) {
-          // 新規ユーザーを追加
-          final userId = await widget.dao.into('user').insert({
-            'username': 'tx_test_user',
-            'display_name': 'トランザクションテストユーザー',
-            'email': 'txtest@example.com',
-            'password': 'password123',
-            'status': 'active',
-          });
-          operations.add('ユーザー追加: ID=$userId');
-
-          // 投稿も追加
-          if (widget.schema.hasTable('post')) {
-            final postId = await widget.dao.into('post').insert({
-              'author_id': userId,
-              'title': 'トランザクションテスト投稿',
-              'content': 'これはトランザクションのテスト投稿です。',
-              'status': 'published',
-              'published_at': DateTime.now().millisecondsSinceEpoch ~/ 1000,
-            });
-            operations.add('投稿追加: ID=$postId');
-          }
-        }
-
-        return operations;
-      });
-
-      _addResult(DemoResult(
-        title: 'トランザクション操作',
-        description: '複数のテーブルへの挿入をトランザクション内で実行',
-        sql: 'BEGIN; [複数のINSERT文]; COMMIT;',
-        result: '成功した操作:\n${result.join('\n')}',
-        isSuccess: true,
-      ));
-    } catch (e) {
-      _addResult(DemoResult(
-        title: 'トランザクション操作',
-        description: 'トランザクション実行でエラーが発生（ロールバック済み）',
-        sql: 'BEGIN; [複数のINSERT文]; ROLLBACK;',
-        result: 'エラー: $e',
-        isSuccess: false,
-      ));
-    } finally {
-      setState(() => _isRunning = false);
-    }
-  }
-
-  /// 型安全性のデモ
-  Future<void> _runTypeSafetyDemo() async {
-    setState(() => _isRunning = true);
-
-    try {
-      final testResults = <String>[];
-
-      // 最初のテーブルで型安全性をテスト
-      final firstTable = widget.schema.tables.first;
-      final builder = widget.dao.select(firstTable.sqlName);
-
-      // 型安全なWHERE句のテスト
-      for (final column in firstTable.allColumns) {
-        try {
-          switch (column.type) {
-            case DMDataType.integer:
-              builder.whereColumn(column.sqlName, 1);
-              testResults.add('✅ ${column.sqlName} (integer): 型チェック成功');
-              break;
-            case DMDataType.text:
-              builder.whereColumn(column.sqlName, 'test');
-              testResults.add('✅ ${column.sqlName} (text): 型チェック成功');
-              break;
-            case DMDataType.boolean:
-              builder.whereColumn(column.sqlName, true);
-              testResults.add('✅ ${column.sqlName} (boolean): 型チェック成功');
-              break;
-            case DMDataType.datetime:
-              builder.whereColumn(column.sqlName, DateTime.now());
-              testResults.add('✅ ${column.sqlName} (datetime): 型チェック成功');
-              break;
-            case DMDataType.real:
-              builder.whereColumn(column.sqlName, 1.5);
-              testResults.add('✅ ${column.sqlName} (real): 型チェック成功');
-              break;
-          }
-        } catch (e) {
-          testResults.add('❌ ${column.sqlName}: エラー - $e');
-        }
-      }
-
-      // 型エラーのテスト
-      try {
-        final intColumn = firstTable.allColumns.firstWhere(
-          (col) => col.type == DMDataType.integer,
-          orElse: () => firstTable.allColumns.first,
-        );
-        builder.whereColumn(intColumn.sqlName, 'invalid_type');
-        testResults.add('❌ 型エラーテスト: 例外が発生すべきでしたが成功してしまいました');
-      } catch (e) {
-        testResults.add('✅ 型エラーテスト: 正しく例外が発生しました - ${e.toString().substring(0, 50)}...');
-      }
-
-      _addResult(DemoResult(
-        title: '型安全性テスト',
-        description: 'DynamicDAOの実行時型チェック機能をテスト',
-        sql: 'SELECT * FROM ${firstTable.sqlName} WHERE [various type conditions]',
-        result: testResults.join('\n'),
-        isSuccess: true,
-      ));
-    } catch (e) {
-      _addResult(DemoResult(
-        title: '型安全性テスト',
-        description: '型安全性テストでエラーが発生しました',
-        sql: 'N/A',
-        result: 'エラー: $e',
-        isSuccess: false,
-      ));
-    } finally {
-      setState(() => _isRunning = false);
-    }
-  }
-
-  String _formatJoinResult(List<Map<String, dynamic>> result) {
-    if (result.isEmpty) return '結果なし';
-
-    final buffer = StringBuffer();
-    for (int i = 0; i < result.length; i++) {
-      final row = result[i];
-      buffer.writeln('行 ${i + 1}:');
-      for (final entry in row.entries) {
-        buffer.writeln('  ${entry.key}: ${entry.value}');
-      }
-    }
-    return buffer.toString();
-  }
-
-  void _addResult(DemoResult result) {
-    setState(() {
-      _results.add(result);
-    });
-  }
-
-  void _clearResults() {
-    setState(() {
-      _results.clear();
-    });
-  }
-}
-
-/// デモ結果を保持するクラス
-class DemoResult {
-  final String title;
-  final String description;
-  final String sql;
-  final String result;
-  final bool isSuccess;
-
-  const DemoResult({
-    required this.title,
-    required this.description,
-    required this.sql,
-    required this.result,
-    required this.isSuccess,
-  });
 }

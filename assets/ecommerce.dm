@@ -21,3 +21,43 @@
 
 配送方法{shipping_method}: [配送方法ID{id:int}], 配送方法名{name:string!}, 基本料金{base_fee:int!}, 重量単価{weight_fee:double}, 説明{description:string}
 -> 注文{order}
+
+# サンプルデータ
+@sample customer, 1, "田中太郎", "tanaka@example.com", "password123", "東京都渋谷区1-1-1", "090-1234-5678", 631152000, 1640995200, 1640995200
+@sample customer, 2, "佐藤花子", "sato@example.com", "pass456", "大阪府大阪市北区2-2-2", "080-9876-5432", 694224000, 1641081600, 1641081600
+
+@sample category, 1, "電子機器", "パソコンやスマートフォンなど", 1, null, 1640995200
+@sample category, 2, "PC周辺機器", "マウス、キーボードなど", 2, 1, 1640995200
+
+@sample brand, 1, "TechCorp", "高品質な電子機器メーカー", "https://example.com/logo1.png", "https://techcorp.com"
+@sample brand, 2, "DevTools", "開発者向けツールメーカー", "https://example.com/logo2.png", "https://devtools.com"
+
+@sample product, 1, "ノートパソコン", "高性能なノートパソコン", 89800, 65000.0, 10, 2.1, "35cm x 25cm x 2cm", "https://example.com/laptop.jpg", "販売中", 1640995200
+@sample product, 2, "ワイヤレスマウス", "使いやすいワイヤレスマウス", 2980, 1500.0, 50, 0.1, "10cm x 6cm x 3cm", "https://example.com/mouse.jpg", "販売中", 1640995200
+@sample product, 3, "メカニカルキーボード", "タイピングが快適なキーボード", 5980, 3200.0, 25, 0.8, "45cm x 15cm x 4cm", "https://example.com/keyboard.jpg", "販売中", 1640995200
+
+@sample shipping_method, 1, "通常配送", 500, 0.0, "3-5営業日でお届け"
+@sample shipping_method, 2, "お急ぎ便", 800, 0.0, "1-2営業日でお届け"
+
+@sample order, 1, 1, 1641052800, "東京都渋谷区1-1-1", "090-1234-5678", 92780, 500, 9278, 102558, "配送完了", 1641052800
+@sample order, 2, 2, 1641139200, "大阪府大阪市北区2-2-2", "080-9876-5432", 8960, 500, 896, 10356, "処理中", 1641139200
+
+@sample order_detail, 1, 1, 1, 1, 89800, 89800
+@sample order_detail, 2, 1, 2, 1, 2980, 2980
+@sample order_detail, 3, 2, 3, 1, 5980, 5980
+@sample order_detail, 4, 2, 2, 1, 2980, 2980
+
+@sample favorite, 1, 1, 3, 1641052800
+@sample favorite, 2, 2, 1, 1641139200
+
+@sample cart, 1, 1, 2, 1, 1641225600
+@sample cart, 2, 2, 3, 2, 1641225600
+
+@sample review, 1, 1, 1, 5, "とても使いやすいです！", 1641398400
+@sample review, 2, 1, 2, 4, "コンパクトで良い", 1641484800
+@sample review, 3, 2, 3, 5, "打鍵感が最高です", 1641571200
+
+@sample coupon, 1, "新規会員特典", "固定額", 1000, 5000, 1640995200, 1672531200, 1, 0, "有効"
+@sample coupon, 2, "リピーター割引", "割合", 10, 10000, 1640995200, 1672531200, null, 5, "有効"
+
+@sample coupon_usage, 1, 1, 1, 1000, 1641052800

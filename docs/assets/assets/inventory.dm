@@ -19,3 +19,28 @@
 
 在庫移動{stock_movement}: [移動ID{id:int}], (商品ID{product_id:int}), (移動元倉庫ID{from_warehouse_id:int}), (移動先倉庫ID{to_warehouse_id:int}), 移動数量{quantity:int!}, 移動理由{reason:string}, 移動日時{movement_date:datetime!}, 実施者{executor:string}
 -> 商品{product}
+
+# サンプルデータ
+@sample warehouse, 1, "東京倉庫", "TOKYO", "東京都江東区1-1-1", "メイン倉庫", 1640995200
+@sample warehouse, 2, "大阪倉庫", "OSAKA", "大阪府大阪市住之江区2-2-2", "関西地区倉庫", 1640995200
+
+@sample supplier, 1, "TechSupply Co.", "tech@supply.com", "03-1234-5678", "東京都港区3-3-3", "IT機器サプライヤー"
+@sample supplier, 2, "Office Goods Inc.", "info@officegoods.com", "06-9876-5432", "大阪府大阪市北区4-4-4", "オフィス用品サプライヤー"
+
+@sample product, 1, "ノートパソコン", "NB001", "高性能ノートPC", 89800, 65000.0, 1640995200
+@sample product, 2, "ワイヤレスマウス", "MS001", "Bluetoothマウス", 2980, 1500.0, 1640995200
+@sample product, 3, "キーボード", "KB001", "メカニカルキーボード", 5980, 3200.0, 1640995200
+
+@sample stock, 1, 1, 1, 50, 45, 5, 30, 1641024000
+@sample stock, 2, 2, 1, 100, 85, 15, 50, 1641024000
+@sample stock, 3, 3, 2, 30, 25, 5, 20, 1641024000
+
+@sample purchase_order, 1, 1, 1641024000, "承認", 200000, 1641110400, "田中", 1641196800
+@sample purchase_order, 2, 2, 1641110400, "発注中", 150000, 1641196800, "佐藤", null
+
+@sample purchase_order_detail, 1, 1, 1, 10, 65000.0, 650000
+@sample purchase_order_detail, 2, 2, 2, 50, 1500.0, 75000
+@sample purchase_order_detail, 3, 2, 3, 25, 3200.0, 80000
+
+@sample stock_movement, 1, 1, 1, 2, 5, "店舗補充", 1641283200, "山田"
+@sample stock_movement, 2, 2, 2, 1, 10, "倉庫間移動", 1641369600, "鈴木"
